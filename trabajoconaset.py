@@ -226,6 +226,76 @@ def cargar_datos():
     print(f"\n  datos guardados en '{CSV_CACHE}' para las proximas ejecuciones\n")
     return df
 
+# -----------------------------------------------------------------------
+# aqui faltaria la estadistica descriptiva
+# -----------------------------------------------------------------------
+
+# -----------------------------------------------------------------------
+# graficos exploratorios
+# -----------------------------------------------------------------------
+
+def hacer_graficos_exploratorios(df):
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle("Análisis Exploratorio — Siniestros Viales Chile (2000-2024)",
+                 fontsize=14, fontweight="bold")
+    
+    # 1. tendencia anual
+    por_anio = df.groupby("anio")["siniestros"].sum().reset_index()
+    axes[0,0].plot(por_anio["anio"], por_anio["siniestros"],
+                   marker="o", color=COLORES["azul"], linewidth=2.5, markersize=6)
+    axes[0,0].fill_between(por_anio["anio"], por_anio["siniestros"],
+                            alpha=0.1, color=COLORES["azul"])
+    axes[0,0].set_title("Evolucion anual de siniestros")
+    axes[0,0].set_xlabel("Año")
+    axes[0,0].set_ylabel("Total siniestros")
+
+    # 2. promedio por region (top 8)
+    if "region" in df.columns:
+        top_reg = (df.groupby("region")["siniestros"]
+                     .mean()
+                     .sort_values(ascending=True)
+                     .tail(8))
+        colores_barra = [COLORES["rojo"] if r == top_reg.idxmax()
+                         else COLORES["azul"] for r in top_reg.index]
+        axes[0,1].barh(top_reg.index, top_reg.values,
+                        color=colores_barra, edgecolor="white")
+        axes[0,1].set_title("Promedio de siniestros por region (top 8)")
+        axes[0,1].set_xlabel("Promedio anual")
+
+    # 3. mapa de calor correlaciones
+    cols_corr = [c for c in ["siniestros", "fallecidos",
+                               "lesionados_graves", "lesionados_leves",
+                               "tasa_mortalidad"] if c in df.columns]
+    sns.heatmap(df[cols_corr].corr(), annot=True, fmt=".2f",
+                cmap="Blues", ax=axes[1,0], linewidths=0.5, annot_kws={"size": 9})
+    axes[1,0].set_title("Mapa de calor — correlaciones")
+
+    # 4. scatter siniestros vs fallecidos con linea de tendencia
+    muestra = df.sample(min(600, len(df)), random_state=42)
+    axes[1,1].scatter(muestra["siniestros"], muestra["fallecidos"],
+                      alpha=0.4, color=COLORES["verde"], edgecolors="none", s=20)
+    m, b = np.polyfit(df["siniestros"], df["fallecidos"], 1)
+    xs = np.linspace(df["siniestros"].min(), df["siniestros"].max(), 100)
+    corr_val = df[["siniestros","fallecidos"]].corr().iloc[0,1]
+    axes[1,1].plot(xs, m*xs + b, color=COLORES["rojo"],
+                   linewidth=2, label=f"tendencia (r={corr_val:.2f})")
+    axes[1,1].set_title("Siniestros vs Fallecidos")
+    axes[1,1].set_xlabel("Siniestros")
+    axes[1,1].set_ylabel("Fallecidos")
+    axes[1,1].legend(fontsize=9)
+
+    plt.tight_layout()
+    plt.show()
+
+# -----------------------------------------------------------------------
+# modelos
+# -----------------------------------------------------------------------
+
+# -----------------------------------------------------------------------
+# menu
+# -----------------------------------------------------------------------
+
 if __name__ == "__main__":
     verificar_api_conaset()
     df = cargar_datos()
