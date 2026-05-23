@@ -120,6 +120,72 @@ def mapear_columnas(df):
     df = df.loc[:, ~df.columns.duplicated()]
     return df
 
+# -----------------------------------------------------------------------
+# limpieza de datos
+# -----------------------------------------------------------------------
+
+def limpiar_datos(df):
+    print("\n" + "-"*50)
+    print("  LIMPIEZA DE DATOS")
+    print("-"*50)
+    n_inicio = len(df)
+
+    # convertir a numerico las columnas que deberían serlo
+    # errors='coerce' convierte lo que no sea numero a NaN en vez de explotar
+    cols_numericas = ["anio", "siniestros", "fallecidos",
+                      "lesionados_graves", "lesionados_leves"]
+    for col in cols_numericas:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # chequear que tenemos las columnas minimas para trabajar
+    if "region" not in df.columns or "siniestros" not in df.columns:
+        print("  PROBLEMA: no se encontraron las columnas region o siniestros")
+        print("  columnas disponibles:", df.columns.tolist())
+        print("  ajusta el diccionario de mapeo en mapear_columnas()")
+        raise SystemExit(1)
+
+    # sacar filas donde falten los datos principales
+    antes = len(df)
+    df = df.dropna(subset=["anio", "region", "siniestros"])
+    if antes - len(df) > 0:
+        print(f"  filas con nulos eliminadas: {antes - len(df)}")
+
+    # las filas de "Total" o "TOTAL" no son regiones, son sumas parciales
+    # si las dejamos van a inflar los modelos
+    df = df[~df["region"].astype(str).str.contains("Total|TOTAL", na=False)]
+
+    # crear columna numerica de region para los modelos de ML
+    # LabelEncoder le asigna un numero a cada region (0, 1, 2...)
+    df["region_num"] = LabelEncoder().fit_transform(df["region"].astype(str))
+
+    # si alguna columna de victimas no existe la creamos con 0
+    # para no tener problemas mas adelante
+    for col in ["fallecidos", "lesionados_graves", "lesionados_leves", "siniestros"]:
+        if col not in df.columns:
+            df[col] = 0
+
+    # tasa de mortalidad: de cada 100 siniestros cuantos terminaron con muertos
+    # np.where para evitar division por cero
+    df["tasa_mortalidad"] = np.where(
+        df["siniestros"] > 0,
+        (df["fallecidos"] / df["siniestros"] * 100).round(2),
+        0
+    )
+
+    # outliers en siniestros usando IQR × 3 (bastante permisivo para no perder casos reales)
+    Q1 = df["siniestros"].quantile(0.25)
+    Q3 = df["siniestros"].quantile(0.75)
+    limite = Q3 + 3 * (Q3 - Q1)
+    antes = len(df)
+    df = df[df["siniestros"] <= limite]
+    if antes - len(df) > 0:
+        print(f"  outliers removidos en siniestros: {antes - len(df)} filas")
+
+    df = df.reset_index(drop=True)
+    print(f"  resultado: {n_inicio:,} filas al inicio -> {len(df):,} filas limpias")
+    print("-"*50 + "\n")
+    return df
 
 def cargar_datos():
     # si ya corrimos antes, cargamos el csv que guardamos
@@ -155,7 +221,7 @@ def cargar_datos():
         raise SystemExit(1)
 
     df = pd.concat(partes, ignore_index=True)
-    # limpiar_datos() aqui lo dejo mas que todo pa que continuen con lo que habiamos hecho por discord kbros:V 
+    df = limpiar_datos(df)  
     df.to_csv(CSV_CACHE, index=False)
     print(f"\n  datos guardados en '{CSV_CACHE}' para las proximas ejecuciones\n")
     return df
