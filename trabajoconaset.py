@@ -604,9 +604,13 @@ def _entrenar_rf(df):
     X_tr, X_te, y_tr, y_te = preparar_split(df, feats_ok)
     print("  entrenando... puede tardar unos segundos")
     mod = RandomForestRegressor(
-        n_estimators=100, max_depth=6,
-        min_samples_leaf=5, random_state=42, n_jobs=-1
-    )
+    n_estimators=100,
+    max_depth=3,
+    min_samples_split=10,
+    min_samples_leaf=5,
+    random_state=42,
+    n_jobs=-1 
+)
     mod.fit(X_tr, y_tr)
     print("\n  importancia de variables:")
     importancias = pd.Series(mod.feature_importances_, index=feats_ok)
