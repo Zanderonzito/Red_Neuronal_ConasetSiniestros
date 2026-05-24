@@ -23,6 +23,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.model_selection import cross_val_score
 warnings.filterwarnings("ignore")
 
 
@@ -567,6 +568,8 @@ def _entrenar_simple(df):
     r2 = imprimir_metricas("Lineal Simple",
                             y_tr, mod.predict(X_tr),
                             y_te, mod.predict(X_te))
+    scores = cross_val_score(mod, X_tr, y_tr, cv=5, scoring="r2")
+    print(f"  Cross Validation R²: {scores.mean():.4f} ± {scores.std():.4f}")
     graficar_diagnostico(y_te, mod.predict(X_te), "Regresion Lineal Simple")
     matriz_confusion(y_te, mod.predict(X_te), "Regresion Lineal Simple")
     return mod, r2, FEATURES_SIMPLE
@@ -586,6 +589,8 @@ def _entrenar_multiple(df):
     r2 = imprimir_metricas("Regresion Multiple",
                             y_tr, mod.predict(X_tr),
                             y_te, mod.predict(X_te))
+    scores = cross_val_score(mod, X_tr, y_tr, cv=5, scoring="r2")
+    print(f"  Cross Validation R²: {scores.mean():.4f} ± {scores.std():.4f}")
     graficar_diagnostico(y_te, mod.predict(X_te), "Regresion Multiple")
     matriz_confusion(y_te, mod.predict(X_te), "Regresion Multiple")
     return mod, r2, feats_ok
@@ -611,6 +616,8 @@ def _entrenar_rf(df):
     r2 = imprimir_metricas("Random Forest",
                             y_tr, mod.predict(X_tr),
                             y_te, mod.predict(X_te))
+    scores = cross_val_score(mod, X_tr, y_tr, cv=5, scoring="r2")
+    print(f"  Cross Validation R²: {scores.mean():.4f} ± {scores.std():.4f}")
     graficar_diagnostico(y_te, mod.predict(X_te), "Random Forest")
     matriz_confusion(y_te, mod.predict(X_te), "Random Forest")
     return mod, r2, feats_ok
