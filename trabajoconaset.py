@@ -227,9 +227,53 @@ def cargar_datos():
     return df
 
 # -----------------------------------------------------------------------
-# aqui faltaria la estadistica descriptiva
+# estadistica descriptiva
 # -----------------------------------------------------------------------
 
+def mostrar_estadistica_descriptiva(df):
+    print("\n" + "="*60)
+    print("     ESTADÍSTICA DESCRIPTIVA — ESTADO DEL ARTE")
+    print("="*60)
+
+    cols = ["siniestros", "fallecidos", "lesionados_graves", "tasa_mortalidad"]
+    
+    print("\n[ Métricas detalladas ]\n")
+    print(f"  {'Variable':<20} {'Promedio':>10} {'Varianza':>12} {'Desv.Std':>10}")
+    print(f"  {'-'*56}")
+    for col in cols:
+        if col in df.columns:
+            # Convertir a numérico y eliminar errores/texto
+            s = pd.to_numeric(df[col], errors='coerce').dropna()
+            # Evitar errores si la columna queda vacía
+            if len(s) > 0:
+                print(f"  {col:<20} "f"{s.mean():>10.2f} "f"{s.var(ddof=1):>12.2f} "f"{s.std(ddof=1):>10.2f}")
+
+    print("\n[ Análisis de Varianza y Comportamiento ]")
+    print(f"  → La alta varianza en 'siniestros' ({df['siniestros'].var():.1f}) refleja la disparidad")
+    print("    geográfica: regiones como la Metropolitana concentran el volumen,")
+    print("    mientras zonas extremas muestran valores atípicamente bajos.")
+
+    print("\n[ Covarianza y Correlación ]\n")
+    pares = [("siniestros", "fallecidos"), ("siniestros", "lesionados_graves")]
+    for v1, v2 in pares:
+
+        if v1 in df.columns and v2 in df.columns:
+
+            # Crear copia temporal
+            temp = df[[v1, v2]].copy()
+
+            # Convertir ambas columnas a numéricas
+            temp[v1] = pd.to_numeric(temp[v1], errors='coerce')
+            temp[v2] = pd.to_numeric(temp[v2], errors='coerce')
+
+            # Eliminar filas inválidas
+            temp = temp.dropna()
+
+            # Verificar que existan suficientes datos
+            if len(temp) > 1:
+                cov = temp.cov().iloc[0, 1]
+                corr = temp.corr().iloc[0, 1]
+                print(f"  {v1} ↔ {v2}: "f"Correlación = {corr:.4f} "f"(Covarianza = {cov:.2f})")
 # -----------------------------------------------------------------------
 # graficos exploratorios
 # -----------------------------------------------------------------------
@@ -296,7 +340,10 @@ def hacer_graficos_exploratorios(df):
 # menu
 # -----------------------------------------------------------------------
 
+
+#Prueba de que funcione
 if __name__ == "__main__":
     verificar_api_conaset()
     df = cargar_datos()
     print(df.tail(10).to_string())
+    mostrar_estadistica_descriptiva(df)
