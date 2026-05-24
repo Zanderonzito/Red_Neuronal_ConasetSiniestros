@@ -545,7 +545,7 @@ def main():
                 comparar_modelos(resultados)
 
         elif op == "8":
-            print("\n  suerte con la presentacion!!\n")
+            print("\n  cuidese estimado :)!!\n")
             break
 
         else:
