@@ -7,7 +7,7 @@ https://www.conaset.cl/programa/observatorio-datos-estadistica/biblioteca-observ
 Fuente secundaria (validacion): API publica ArcGIS de CONASET
 https://mapas-conaset.opendata.arcgis.com
 -----
-Integrantes: Rigo Vega, Martín Caamaño, Favi Muñoz, Nikolas Maldonado.
+Integrantes: Rigo Vega, Martín Caamaño, Favio Muñoz, Nikolas Maldonado.
 """
 
 import pandas as pd
@@ -333,17 +333,263 @@ def hacer_graficos_exploratorios(df):
     plt.show()
 
 # -----------------------------------------------------------------------
-# modelos
+# modelos predictivos
 # -----------------------------------------------------------------------
 
-# -----------------------------------------------------------------------
-# menu
-# -----------------------------------------------------------------------
+def preparar_split(df, features):
+    # nos aseguramos de no incluir filas con nulos en las features que vamos a usar
+    df_limpio = df.dropna(subset=features + ["siniestros"]).copy()
+    X = df_limpio[features]
+    y = df_limpio["siniestros"]
+    return train_test_split(X, y, test_size=0.2, random_state=42)
 
 
-#Prueba de que funcione
-if __name__ == "__main__":
+def imprimir_metricas(nombre, y_train, y_pred_train, y_test, y_pred_test):
+    r2_tr = r2_score(y_train, y_pred_train)
+    r2_te = r2_score(y_test,  y_pred_test)
+    gap   = r2_tr - r2_te
+
+    print(f"\n  Metricas — {nombre}")
+    print(f"  {'':10} {'train':>10} {'test':>10}")
+    print(f"  {'R2':10} {r2_tr:>10.4f} {r2_te:>10.4f}")
+    print(f"  {'RMSE':10} {np.sqrt(mean_squared_error(y_train,y_pred_train)):>10.2f} "
+          f"{np.sqrt(mean_squared_error(y_test,y_pred_test)):>10.2f}")
+    print(f"  {'MAE':10} {mean_absolute_error(y_train,y_pred_train):>10.2f} "
+          f"{mean_absolute_error(y_test,y_pred_test):>10.2f}")
+
+    if abs(gap) > 0.15:
+        print(f"  aviso: gap R2 = {gap:+.4f} — puede haber sobreajuste")
+    else:
+        print(f"  gap R2 = {gap:+.4f} — ok, generaliza bien")
+    return r2_te
+
+
+def graficar_diagnostico(y_test, y_pred, nombre):
+    residuos = y_test.values - y_pred
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    fig.suptitle(f"Diagnostico — {nombre}", fontweight="bold")
+
+    mn, mx = min(y_test.min(), y_pred.min()), max(y_test.max(), y_pred.max())
+    axes[0].scatter(y_test, y_pred, alpha=0.4, color=COLORES["azul"],
+                    edgecolors="none", s=25)
+    axes[0].plot([mn,mx],[mn,mx], "r--", linewidth=1.5, label="prediccion perfecta")
+    axes[0].set_xlabel("valor real")
+    axes[0].set_ylabel("valor predicho")
+    axes[0].set_title("Real vs Predicho")
+    axes[0].legend(fontsize=9)
+
+    axes[1].hist(residuos, bins=25, color=COLORES["azul"], edgecolor="white", alpha=0.8)
+    axes[1].axvline(0, color=COLORES["rojo"], linestyle="--", linewidth=1.5,
+                    label="residuo = 0")
+    axes[1].axvline(residuos.mean(), color=COLORES["naranja"], linewidth=1.5,
+                    label=f"media = {residuos.mean():.2f}")
+    axes[1].set_xlabel("residuo")
+    axes[1].set_ylabel("frecuencia")
+    axes[1].set_title("Histograma de residuos")
+    axes[1].legend(fontsize=9)
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+def comparar_modelos(resultados):
+    print("\n" + "="*50)
+    print("  COMPARACION FINAL DE MODELOS")
+    print("="*50)
+
+    nombres = ["Lineal Simple", "Regresion Multiple", "Random Forest"]
+    r2s     = [resultados["simple"][1], resultados["multiple"][1], resultados["rf"][1]]
+    colores = [COLORES["naranja"], COLORES["azul"], COLORES["verde"]]
+
+    ranking = sorted(zip(r2s, nombres), reverse=True)
+    print(f"\n  {'Modelo':<22} {'R2 Test':>10}")
+    print(f"  {'-'*34}")
+    for i, (r2, nombre) in enumerate(ranking, 1):
+        marca = "  <- mejor" if i == 1 else ""
+        print(f"  {nombre:<22} {r2:>10.4f}{marca}")
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    fig.suptitle("Comparacion de Modelos — Seguridad Vial Chile", fontweight="bold")
+
+    nombres_graf = ["Lineal\nSimple", "Regresion\nMultiple", "Random\nForest"]
+    bars = axes[0].bar(nombres_graf, r2s, color=colores, edgecolor="white",
+                       width=0.5, alpha=0.9)
+    for bar, val in zip(bars, r2s):
+        axes[0].text(bar.get_x() + bar.get_width()/2,
+                     bar.get_height() + 0.005,
+                     f"{val:.4f}", ha="center", va="bottom",
+                     fontsize=11, fontweight="bold")
+    axes[0].set_ylabel("R2 en conjunto de prueba")
+    axes[0].set_title("R2 por modelo")
+    axes[0].set_ylim(0, max(r2s) * 1.3)
+
+    # importancia de variables del Random Forest
+    mod_rf   = resultados["rf"][0]
+    feats_ok = resultados["rf"][2]
+    imp = pd.Series(mod_rf.feature_importances_, index=feats_ok).sort_values()
+    axes[1].barh(imp.index, imp.values, color=COLORES["verde"],
+                 edgecolor="white", alpha=0.85)
+    axes[1].set_title("Variables mas importantes (Random Forest)")
+    axes[1].set_xlabel("Importancia relativa")
+
+    plt.tight_layout()
+    plt.show()
+
+    mejor = ranking[0][1]
+    print(f"\n  El mejor modelo es '{mejor}'.")
+    print("  Igual la Regresion Multiple sirve porque los coeficientes se pueden")
+    print("  explicar en terminos reales, algo que con Random Forest es mas dificil.")
+
+
+# -----------------------------------------------------------------------
+# menu principal
+# -----------------------------------------------------------------------
+
+def main():
+    print("\n" + "█"*60)
+    print("  SEGURIDAD VIAL EN CHILE — ANALISIS DE SINIESTRALIDAD")
+    print("  Fuente: Observatorio CONASET / ArcGIS Open Data")
+    print("█"*60)
+
     verificar_api_conaset()
     df = cargar_datos()
-    print(df.tail(10).to_string())
-    mostrar_estadistica_descriptiva(df)
+
+    if "region" not in df.columns or "siniestros" not in df.columns:
+        print("\n  Error: no se mapearon bien las columnas del Excel.")
+        print("  Revisa la funcion mapear_columnas() y ajusta segun tu archivo.")
+        return
+
+    # guardamos los modelos en memoria a medida que se van entrenando
+    # al principio todos en None, se van llenando con las opciones del menu
+    resultados = {
+        "simple":   None,
+        "multiple": None,
+        "rf":       None,
+    }
+
+    while True:
+        print("\n" + "="*45)
+        print("             MENU")
+        print("="*45)
+        print("  [ Exploracion ]")
+        print("  1. Ver datos (ultimas 10 filas)")
+        print("  2. Estadistica descriptiva")
+        print("  3. Graficos exploratorios")
+        print("")
+        print("  [ Modelos predictivos ]")
+        print("  4. Entrenar Regresion Lineal Simple")
+        print("  5. Entrenar Regresion Multiple")
+        print("  6. Entrenar Random Forest")
+        print("")
+        print("  [ Resultados ]")
+        print("  7. Comparar modelos")
+        print("")
+        print("  8. Salir")
+
+        op = input("\n>> ").strip()
+
+        if op == "1":
+            print(df.tail(10).to_string())
+
+        elif op == "2":
+            mostrar_estadistica_descriptiva(df)
+
+        elif op == "3":
+            hacer_graficos_exploratorios(df)
+
+        elif op == "4":
+            mod, r2, feats = _entrenar_simple(df)
+            resultados["simple"] = (mod, r2, feats)
+
+        elif op == "5":
+            mod, r2, feats = _entrenar_multiple(df)
+            resultados["multiple"] = (mod, r2, feats)
+
+        elif op == "6":
+            mod, r2, feats = _entrenar_rf(df)
+            resultados["rf"] = (mod, r2, feats)
+
+        elif op == "7":
+            # verificar que esten entrenados los 3 antes de comparar
+            faltantes = [k for k, v in resultados.items() if v is None]
+            if faltantes:
+                nombres = {"simple": "4", "multiple": "5", "rf": "6"}
+                print("\n  faltan modelos por entrenar:")
+                for f in faltantes:
+                    print(f"    -> opcion {nombres[f]} ({f})")
+            else:
+                comparar_modelos(resultados)
+
+        elif op == "8":
+            print("\n  suerte con la presentacion!!\n")
+            break
+
+        else:
+            print("  eso no es una opcion valida")
+
+
+# -----------------------------------------------------------------------
+# funciones internas de entrenamiento (separadas para el menu)
+# -----------------------------------------------------------------------
+
+def _entrenar_simple(df):
+    print("\n" + "="*50)
+    print("  MODELO 1 — Regresion Lineal Simple (año -> siniestros)")
+    print("="*50)
+    X_tr, X_te, y_tr, y_te = preparar_split(df, FEATURES_SIMPLE)
+    mod = LinearRegression().fit(X_tr, y_tr)
+    coef = mod.coef_[0]
+    print(f"\n  ecuacion: siniestros = {coef:.2f} * año + ({mod.intercept_:.2f})")
+    print(f"  por cada año que pasa, los siniestros cambian en {coef:.2f} unidades")
+    r2 = imprimir_metricas("Lineal Simple",
+                            y_tr, mod.predict(X_tr),
+                            y_te, mod.predict(X_te))
+    graficar_diagnostico(y_te, mod.predict(X_te), "Regresion Lineal Simple")
+    return mod, r2, FEATURES_SIMPLE
+
+
+def _entrenar_multiple(df):
+    feats_ok = [f for f in FEATURES_MULTI if f in df.columns]
+    print("\n" + "="*50)
+    print(f"  MODELO 2 — Regresion Multiple")
+    print(f"  Features: {feats_ok}")
+    print("="*50)
+    X_tr, X_te, y_tr, y_te = preparar_split(df, feats_ok)
+    mod = LinearRegression().fit(X_tr, y_tr)
+    print("\n  coeficientes (cuanto aporta cada variable):")
+    for feat, c in zip(feats_ok, mod.coef_):
+        print(f"    {feat:<22}: {c:+.4f}")
+    r2 = imprimir_metricas("Regresion Multiple",
+                            y_tr, mod.predict(X_tr),
+                            y_te, mod.predict(X_te))
+    graficar_diagnostico(y_te, mod.predict(X_te), "Regresion Multiple")
+    return mod, r2, feats_ok
+
+
+def _entrenar_rf(df):
+    feats_ok = [f for f in FEATURES_MULTI if f in df.columns]
+    print("\n" + "="*50)
+    print("  MODELO 3 — Random Forest (100 arboles, profundidad max 6)")
+    print("="*50)
+    X_tr, X_te, y_tr, y_te = preparar_split(df, feats_ok)
+    print("  entrenando... puede tardar unos segundos")
+    mod = RandomForestRegressor(
+        n_estimators=100, max_depth=6,
+        min_samples_leaf=5, random_state=42, n_jobs=-1
+    )
+    mod.fit(X_tr, y_tr)
+    print("\n  importancia de variables:")
+    importancias = pd.Series(mod.feature_importances_, index=feats_ok)
+    for feat, imp in importancias.sort_values(ascending=False).items():
+        barra = "█" * int(imp * 35)
+        print(f"    {feat:<22}: {barra} {imp:.4f}")
+    r2 = imprimir_metricas("Random Forest",
+                            y_tr, mod.predict(X_tr),
+                            y_te, mod.predict(X_te))
+    graficar_diagnostico(y_te, mod.predict(X_te), "Random Forest")
+    return mod, r2, feats_ok
+
+
+if _name_ == "_main_":
+    main()
