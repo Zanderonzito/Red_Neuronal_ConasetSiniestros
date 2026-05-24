@@ -22,6 +22,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 warnings.filterwarnings("ignore")
 
 
@@ -391,7 +392,23 @@ def graficar_diagnostico(y_test, y_pred, nombre):
     plt.tight_layout()
     plt.show()
 
+def matriz_confusion(y_test, y_pred, nombre):
 
+    # discretizamos en 3 rangos: bajo, medio, alto
+    bins = [0, 500, 1500, float("inf")]
+    labels = ["bajo", "medio", "alto"]
+
+    y_test_cat = pd.cut(y_test, bins=bins, labels=labels)
+    y_pred_cat = pd.cut(y_pred, bins=bins, labels=labels)
+
+    cm = confusion_matrix(y_test_cat, y_pred_cat, labels=labels)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    disp.plot(ax=ax, colorbar=False, cmap="Blues")
+    ax.set_title(f"Matriz de Confusion — {nombre}")
+    plt.tight_layout()
+    plt.show()
 
 def comparar_modelos(resultados):
     print("\n" + "="*50)
@@ -546,6 +563,7 @@ def _entrenar_simple(df):
                             y_tr, mod.predict(X_tr),
                             y_te, mod.predict(X_te))
     graficar_diagnostico(y_te, mod.predict(X_te), "Regresion Lineal Simple")
+    matriz_confusion(y_te, mod.predict(X_te), "Regresion Lineal Simple")
     return mod, r2, FEATURES_SIMPLE
 
 
@@ -564,6 +582,7 @@ def _entrenar_multiple(df):
                             y_tr, mod.predict(X_tr),
                             y_te, mod.predict(X_te))
     graficar_diagnostico(y_te, mod.predict(X_te), "Regresion Multiple")
+    matriz_confusion(y_te, mod.predict(X_te), "Regresion Multiple")
     return mod, r2, feats_ok
 
 
@@ -588,8 +607,9 @@ def _entrenar_rf(df):
                             y_tr, mod.predict(X_tr),
                             y_te, mod.predict(X_te))
     graficar_diagnostico(y_te, mod.predict(X_te), "Random Forest")
+    matriz_confusion(y_te, mod.predict(X_te), "Random Forest")
     return mod, r2, feats_ok
 
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
