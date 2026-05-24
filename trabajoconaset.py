@@ -393,13 +393,18 @@ def graficar_diagnostico(y_test, y_pred, nombre):
     plt.show()
 
 def matriz_confusion(y_test, y_pred, nombre):
-
-    # discretizamos en 3 rangos: bajo, medio, alto
-    bins = [0, 500, 1500, float("inf")]
+    bins = [0, 1500, 5000, float("inf")]
     labels = ["bajo", "medio", "alto"]
 
-    y_test_cat = pd.cut(y_test, bins=bins, labels=labels)
-    y_pred_cat = pd.cut(y_pred, bins=bins, labels=labels)
+    y_test_s = pd.Series(np.array(y_test).flatten()).reset_index(drop=True)
+    y_pred_s = pd.Series(np.array(y_pred).flatten()).reset_index(drop=True)
+
+    y_test_cat = pd.cut(y_test_s, bins=bins, labels=labels)
+    y_pred_cat = pd.cut(y_pred_s, bins=bins, labels=labels)
+
+    mask = y_test_cat.notna() & y_pred_cat.notna()
+    y_test_cat = y_test_cat[mask].astype(str).values
+    y_pred_cat = y_pred_cat[mask].astype(str).values
 
     cm = confusion_matrix(y_test_cat, y_pred_cat, labels=labels)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
