@@ -393,7 +393,7 @@ def graficar_diagnostico(y_test, y_pred, nombre):
     plt.show()
 
 def matriz_confusion(y_test, y_pred, nombre):
-    bins = [0, 1500, 5000, float("inf")]
+    bins = [0, 2000, 4500, float("inf")]
     labels = ["bajo", "medio", "alto"]
 
     y_test_s = pd.Series(np.array(y_test).flatten()).reset_index(drop=True)
