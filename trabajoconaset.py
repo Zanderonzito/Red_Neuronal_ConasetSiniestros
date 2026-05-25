@@ -21,7 +21,6 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import cross_val_score
 warnings.filterwarnings("ignore")
@@ -52,7 +51,13 @@ COLORES = {
     "naranja": "#EA580C",
     "gris":    "#6B7280",
 }
-
+# mas que todo para las regiones
+REGIONES_NUM = {
+    "Tarapacá": 1, "Antofagasta": 2, "Atacama": 3, "Coquimbo": 4,
+    "Valparaíso": 5, "L.B.O´Higgins": 6, "Maule": 7, "Biobio": 8,
+    "Araucanía": 9, "Los Lagos": 10, "Aysén": 11, "Magallanes": 12,
+    "Metropolitana": 13, "Los Ríos": 14, "Arica y Parinacota": 15, "Ñuble": 16,
+}
 # -----------------------------------------------------------------------
 # validacion de la API (mas que to pa justificar la fuente de datos)
 # -----------------------------------------------------------------------
@@ -85,43 +90,30 @@ def verificar_api_conaset():
 # lectura del excel
 # -----------------------------------------------------------------------
 
-def mapear_columnas(df):
-    """
-    El Excel de CONASET tiene un formato medio raro con celdas combinadas
-    y los subtitulos a veces quedan en la fila de abajo en vez del header.
-    Esta funcion mas que todo detecta las columnas por palabras clave en vez de confiar
-    en el nombre exacto, que puede variar entre versiones del Excel, profe aqui tuvimos hartos problemitas pero con las 
-    palabras quedó bien
-    """
-    nuevas = {}
-    for i, col in enumerate(df.columns):
-        # juntamos el nombre de la columna con lo que hay en la primera fila
-        # para no perder los subtitulos que quedaron desplazados
-        encabezado  = str(col).lower().strip()
-        primera_fila = str(df.iloc[0, i]).lower().strip() if len(df) > 0 else ""
-        texto = encabezado + " " + primera_fila
+def leer_hoja(df_hoja, anio):
+    # aqui mas que to sacamos la fila 0 que tiene los subheaders y resetear indice
+    df = df_hoja.iloc[1:].copy() 
+    df = df.reset_index(drop=True)
 
-        # el orden importa: primero los casos mas especificos
-        if "regi" in texto:
-            nuevas[col] = "region"
-        elif "siniestro" in texto:
-            nuevas[col] = "siniestros"
-        elif "fallecido" in texto or "muerto" in texto:
-            nuevas[col] = "fallecidos"
-        elif "menos graves" in texto:
-            nuevas[col] = "lesionados_menos_graves"
-        elif "graves" in texto:
-            nuevas[col] = "lesionados_graves"
-        elif "leves" in texto:
-            nuevas[col] = "lesionados_leves"
-        elif "ileso" in texto:
-            nuevas[col] = "ilesos"
+    cols = df_hoja.columns.tolist()
+    rename = {cols[0]: "region"} 
+    
+    for i, c in enumerate(cols):
+        cl = str(c).lower()
+        if "siniestro" in cl: rename[c] = "siniestros"
+        elif "fallecido" in cl: rename[c] = "fallecidos"
 
-    df = df.rename(columns=nuevas)
-    # si quedaron columnas duplicadas nos quedamos con la primera
-    df = df.loc[:, ~df.columns.duplicated()]
+    subheader = df_hoja.iloc[0]
+    for i, c in enumerate(cols):
+        if c in rename: continue
+        sub = str(subheader.iloc[i]).lower().strip()
+        if sub == "graves": rename[c] = "lesionados_graves"
+        elif "menos" in sub: rename[c] = "lesionados_menos_graves"
+        elif sub == "leves": rename[c] = "lesionados_leves"
+
+    df = df.rename(columns=rename)
+    df["anio"] = int(anio)
     return df
-
 # -----------------------------------------------------------------------
 # limpieza de datos
 # -----------------------------------------------------------------------
@@ -156,10 +148,8 @@ def limpiar_datos(df):
     # las filas de "Total" o "TOTAL" no son regiones, son sumas parciales
     # si las dejamos van a inflar los modelos
     df = df[~df["region"].astype(str).str.contains("Total|TOTAL", na=False)]
-
-    # crear columna numerica de region para los modelos de ML
-    # LabelEncoder le asigna un numero a cada region (0, 1, 2...)
-    df["region_num"] = LabelEncoder().fit_transform(df["region"].astype(str))
+    df["region_num"] = df["region"].map(REGIONES_NUM)
+    df["region_num"] = df["region_num"].fillna(-1).astype(int) # Por si hay datos raros
 
     # si alguna columna de victimas no existe la creamos con 0
     # para no tener problemas mas adelante
@@ -174,16 +164,7 @@ def limpiar_datos(df):
         (df["fallecidos"] / df["siniestros"] * 100).round(2),
         0
     )
-
-    # outliers en siniestros usando IQR × 3 (bastante permisivo para no perder casos reales)
-    Q1 = df["siniestros"].quantile(0.25)
-    Q3 = df["siniestros"].quantile(0.75)
-    limite = Q3 + 3 * (Q3 - Q1)
-    antes = len(df)
-    df = df[df["siniestros"] <= limite]
-    if antes - len(df) > 0:
-        print(f"  outliers removidos en siniestros: {antes - len(df)} filas")
-
+    
     df = df.reset_index(drop=True)
     print(f"  resultado: {n_inicio:,} filas al inicio -> {len(df):,} filas limpias")
     print("-"*50 + "\n")
@@ -210,8 +191,7 @@ def cargar_datos():
             # skiprows=3 porque las primeras filas son titulo y encabezados decorativos
             hojas = pd.read_excel(archivo, sheet_name=None, skiprows=3)
             for nombre_hoja, df_hoja in hojas.items():
-                df_hoja["anio"] = nombre_hoja
-                df_hoja = mapear_columnas(df_hoja)
+                df_hoja = leer_hoja(df_hoja, nombre_hoja)
                 partes.append(df_hoja)
             ok += 1
             print(f"  listo: {archivo} ({len(hojas)} hojas/años procesadas)")
