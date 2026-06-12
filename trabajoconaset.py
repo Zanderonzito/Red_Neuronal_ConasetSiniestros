@@ -482,6 +482,7 @@ def main():
         "simple":   None,
         "multiple": None,
         "rf":       None,
+        "nn":       None,
     }
 
     while True:
@@ -497,11 +498,12 @@ def main():
         print("  4. Entrenar Regresion Lineal Simple")
         print("  5. Entrenar Regresion Multiple")
         print("  6. Entrenar Random Forest")
-        print("")
+        print("  7. Entrenar Red Neuronal")
+        print("")        
         print("  [ Resultados ]")
-        print("  7. Comparar modelos")
+        print("  8. Comparar modelos")
         print("")
-        print("  8. Salir")
+        print("  9. Salir")
 
         op = input("\n>> ").strip()
 
@@ -527,6 +529,11 @@ def main():
             resultados["rf"] = (mod, r2, feats)
 
         elif op == "7":
+            #mod, r2, feats = 
+            #resultados["nn"] = (mod, r2, feats)
+            print("PRUEBA")
+
+        elif op == "8":
             # verificar que esten entrenados los 3 antes de comparar
             faltantes = [k for k, v in resultados.items() if v is None]
             if faltantes:
@@ -537,8 +544,8 @@ def main():
             else:
                 comparar_modelos(resultados)
 
-        elif op == "8":
-            print("\n  cuidese estimado :)!!\n")
+        elif op == "9":
+            print("\n FIN \n")
             break
 
         else:
