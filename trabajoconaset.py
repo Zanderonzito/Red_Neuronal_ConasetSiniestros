@@ -319,12 +319,21 @@ def hacer_graficos_exploratorios(df):
 # -----------------------------------------------------------------------
 
 def preparar_split(df, features):
-    # nos aseguramos de no incluir filas con nulos en las features que vamos a usar
+    # Profe, aquí separamos 80% fit y 20% test y después
+    # y después los ordenamos por año mas que todo para que el test quede con datos mas recientes.
     df_limpio = df.dropna(subset=features + ["siniestros"]).copy()
-    X = df_limpio[features]
-    y = df_limpio["siniestros"]
-    return train_test_split(X, y, test_size=0.2, random_state=42)
-
+    df_limpio = df_limpio.sort_values(["anio", "region"]).reset_index(drop=True)
+    corte = int(len(df_limpio) * 0.80)
+    train = df_limpio.iloc[:corte]
+    test = df_limpio.iloc[corte:]
+    X_train = train[features]
+    X_test = test[features]
+    y_train = train["siniestros"]
+    y_test = test["siniestros"]
+    print(f"\n  Split de datos: {len(train)} registros fit y {len(test)} registros test")
+    print(f"  Fit:  {train['anio'].min()}-{train['anio'].max()}")
+    print(f"  Test: {test['anio'].min()}-{test['anio'].max()}")
+    return X_train, X_test, y_train, y_test
 
 def imprimir_metricas(nombre, y_train, y_pred_train, y_test, y_pred_test):
     r2_tr = r2_score(y_train, y_pred_train)
