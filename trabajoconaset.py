@@ -1,5 +1,5 @@
 """
-Evaluacion 1 - Fundamentos de Data Science
+Evaluacion 2 - Fundamentos de Data Science
 Tema: Seguridad Vial - CONASET
 Fuente principal: Excel oficial del observatorio de CONASET
 https://www.conaset.cl/programa/observatorio-datos-estadistica/biblioteca-observatorio/estadisticas-generales/
