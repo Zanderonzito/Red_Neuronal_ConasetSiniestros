@@ -9,25 +9,22 @@ https://mapas-conaset.opendata.arcgis.com
 -----
 Integrantes: Rigo Vega, Martín Caamaño, Favio Muñoz, Nikolas Maldonado.
 """
-
 import pandas as pd
 import numpy as np
 import os
-import requests
-import warnings
-import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.linear_model import LinearRegression
+import requests
+import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
+import warnings
+import seaborn as sns
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-from sklearn.model_selection import cross_val_score
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
 warnings.filterwarnings("ignore")
+
 
 
 # -----------------------------------------------------------------------
@@ -43,8 +40,6 @@ ARCHIVOS_EXCEL = [
 CSV_CACHE = "datos_conaset.csv"
 
 # features para cada modelo predictivo
-# simple: solo el año, para ver tendencia en el tiempo
-# multiple: mas variables porque claramente influyen en el resultado po :v
 FEATURES_SIMPLE = ["año"]
 FEATURES_MULTI  = ["año", "region_num", "fallecidos", "lesionados_graves"]
 TARGET = "siniestros"
@@ -57,7 +52,6 @@ COLORES = {
     "gris":    "#6B7280",
     "morado":  "#7C3AED",
 }
-# mas que todo para las regiones
 REGIONES_NUM = {
     "Tarapacá": 1, "Antofagasta": 2, "Atacama": 3, "Coquimbo": 4,
     "Valparaíso": 5, "L.B.O´Higgins": 6, "Maule": 7, "Biobio": 8,
@@ -100,7 +94,7 @@ def verificar_api_conaset():
 # -----------------------------------------------------------------------
 
 def leer_hoja(df_hoja, año):
-    # aqui mas que to sacamos la fila 0 que tiene los subheaders y resetear indice
+    # aqui sacamos la fila 0 que tiene los subheaders y resetear indice
     df = df_hoja.iloc[1:].copy() 
     df = df.reset_index(drop=True)
 
@@ -414,54 +408,6 @@ def matriz_confusion(y_test, y_pred, nombre):
     plt.tight_layout()
     plt.show()
 
-def comparar_modelos(resultados):
-    print("\n" + "="*50)
-    print("  COMPARACION FINAL DE MODELOS")
-    print("="*50)
-
-    nombres = ["Lineal Simple", "Regresion Multiple", "Random Forest"]
-    r2s     = [resultados["simple"][1], resultados["multiple"][1], resultados["rf"][1]]
-    colores = [COLORES["naranja"], COLORES["azul"], COLORES["verde"]]
-
-    ranking = sorted(zip(r2s, nombres), reverse=True)
-    print(f"\n  {'Modelo':<22} {'R2 Test':>10}")
-    print(f"  {'-'*34}")
-    for i, (r2, nombre) in enumerate(ranking, 1):
-        marca = "  <- mejor" if i == 1 else ""
-        print(f"  {nombre:<22} {r2:>10.4f}{marca}")
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    fig.suptitle("Comparacion de Modelos — Seguridad Vial Chile", fontweight="bold")
-
-    nombres_graf = ["Lineal\nSimple", "Regresion\nMultiple", "Random\nForest"]
-    bars = axes[0].bar(nombres_graf, r2s, color=colores, edgecolor="white",
-                       width=0.5, alpha=0.9)
-    for bar, val in zip(bars, r2s):
-        axes[0].text(bar.get_x() + bar.get_width()/2,
-                     bar.get_height() + 0.005,
-                     f"{val:.4f}", ha="center", va="bottom",
-                     fontsize=11, fontweight="bold")
-    axes[0].set_ylabel("R2 en conjunto de prueba")
-    axes[0].set_title("R2 por modelo")
-    axes[0].set_ylim(0, max(r2s) * 1.3)
-
-    # importancia de variables del Random Forest
-    mod_rf   = resultados["rf"][0]
-    feats_ok = resultados["rf"][2]
-    imp = pd.Series(mod_rf.feature_importances_, index=feats_ok).sort_values()
-    axes[1].barh(imp.index, imp.values, color=COLORES["verde"],
-                 edgecolor="white", alpha=0.85)
-    axes[1].set_title("Variables mas importantes (Random Forest)")
-    axes[1].set_xlabel("Importancia relativa")
-
-    plt.tight_layout()
-    plt.show()
-
-    mejor = ranking[0][1]
-    print(f"\n  El mejor modelo es '{mejor}'.")
-    print("  Igual la Regresion Multiple sirve porque los coeficientes se pueden")
-    print("  explicar en terminos reales, algo que con Random Forest es mas dificil.")
-
 # -----------------------------------------------------------------------
 # entrenamiento de modelos clasicos
 # -----------------------------------------------------------------------
@@ -469,85 +415,106 @@ def comparar_modelos(resultados):
 def _entrenar_simple(df):
     global RESULTADOS_CLASICOS
     print("\n" + "="*50)
-    print("  MODELO 1 — Regresion Lineal Simple")
+    print("  AJUSTANDO MODELO 1: Regresion Lineal Simple (Año -> Siniestros)")
     print("="*50)
 
-    X_train, X_test, y_train, y_test = preparar_split(df, FEATURES_SIMPLE)
-    modelo = LinearRegression()
-    modelo.fit(X_train, y_train)
+    # Cargar y separar datos
+    x_tr_simple, x_te_simple, y_tr_simple, y_te_simple = preparar_split(df, FEATURES_SIMPLE)
+    
+    # Entrenamiento del modelo
+    lr_model = LinearRegression()
+    lr_model.fit(x_tr_simple, y_tr_simple)
 
-    y_pred_train = modelo.predict(X_train)
-    y_pred_test = modelo.predict(X_test)
+    # Predicciones
+    pred_tr_simple = lr_model.predict(x_tr_simple)
+    pred_te_simple = lr_model.predict(x_te_simple)
 
-    r2 = imprimir_metricas("Lineal Simple", y_train, y_pred_train, y_test, y_pred_test)
-    graficar_diagnostico(y_test, y_pred_test, "Lineal Simple")
-    matriz_confusion(y_test, y_pred_test, "Lineal Simple")
+    # Desplegar resultados
+    r2_val = imprimir_metricas("Lineal Simple", y_tr_simple, pred_tr_simple, y_te_simple, pred_te_simple)
+    print(f"\n  [Ecuacion Ajustada] Siniestros = {lr_model.coef_[0]:.3f} * Año + ({lr_model.intercept_:.3f})")
+    graficar_diagnostico(y_te_simple, pred_te_simple, "Lineal Simple")
+    matriz_confusion(y_te_simple, pred_te_simple, "Lineal Simple")
 
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
-    mae = mean_absolute_error(y_test, y_pred_test)
+    rmse_val = np.sqrt(mean_squared_error(y_te_simple, pred_te_simple))
+    mae_val = mean_absolute_error(y_te_simple, pred_te_simple)
+    
     RESULTADOS_CLASICOS["simple"] = (
-        modelo,
-        {"r2_test": r2, "rmse_test": rmse, "mae_test": mae},
+        lr_model,
+        {"r2_test": r2_val, "rmse_test": rmse_val, "mae_test": mae_val},
         FEATURES_SIMPLE,
     )
-    return modelo, r2, FEATURES_SIMPLE
+    return lr_model, r2_val, FEATURES_SIMPLE
 
 
 def _entrenar_multiple(df):
     global RESULTADOS_CLASICOS
     print("\n" + "="*50)
-    print("  MODELO 2 — Regresion Multiple")
+    print("  AJUSTANDO MODELO 2: Regresion Lineal Multiple (Regiones, Victimas)")
     print("="*50)
 
-    X_train, X_test, y_train, y_test = preparar_split(df, FEATURES_MULTI)
-    modelo = LinearRegression()
-    modelo.fit(X_train, y_train)
+    # Separar variables multiples
+    X_tr_multi, X_te_multi, y_tr_multi, y_te_multi = preparar_split(df, FEATURES_MULTI)
+    
+    multi_reg = LinearRegression()
+    multi_reg.fit(X_tr_multi, y_tr_multi)
 
-    y_pred_train = modelo.predict(X_train)
-    y_pred_test = modelo.predict(X_test)
+    # Obtener predicciones
+    p_train = multi_reg.predict(X_tr_multi)
+    p_test = multi_reg.predict(X_te_multi)
 
-    r2 = imprimir_metricas("Regresion Multiple", y_train, y_pred_train, y_test, y_pred_test)
-    graficar_diagnostico(y_test, y_pred_test, "Regresion Multiple")
-    matriz_confusion(y_test, y_pred_test, "Regresion Multiple")
+    r2_multi = imprimir_metricas("Regresion Multiple", y_tr_multi, p_train, y_te_multi, p_test)
+    
+    # Coeficientes obtenidos
+    print("\n  [Coeficientes del Modelo Multiple]:")
+    for variable, coeficiente in zip(FEATURES_MULTI, multi_reg.coef_):
+        print(f"    - {variable}: {coeficiente:+.4f}")
+    print(f"    - Intercepto: {multi_reg.intercept_:.4f}")
 
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
-    mae = mean_absolute_error(y_test, y_pred_test)
+    graficar_diagnostico(y_te_multi, p_test, "Regresion Multiple")
+    matriz_confusion(y_te_multi, p_test, "Regresion Multiple")
+
+    rmse_multi = np.sqrt(mean_squared_error(y_te_multi, p_test))
+    mae_multi = mean_absolute_error(y_te_multi, p_test)
+    
     RESULTADOS_CLASICOS["multiple"] = (
-        modelo,
-        {"r2_test": r2, "rmse_test": rmse, "mae_test": mae},
+        multi_reg,
+        {"r2_test": r2_multi, "rmse_test": rmse_multi, "mae_test": mae_multi},
         FEATURES_MULTI,
     )
-    return modelo, r2, FEATURES_MULTI
+    return multi_reg, r2_multi, FEATURES_MULTI
 
 
 def _entrenar_rf(df):
     global RESULTADOS_CLASICOS
     print("\n" + "="*50)
-    print("  MODELO 3 — Random Forest")
+    print("  AJUSTANDO MODELO 3: Random Forest Regressor")
     print("="*50)
 
-    X_train, X_test, y_train, y_test = preparar_split(df, FEATURES_MULTI)
-    modelo = RandomForestRegressor(
+    x_fit_rf, x_val_rf, y_fit_rf, y_val_rf = preparar_split(df, FEATURES_MULTI)
+    
+    forest_reg = RandomForestRegressor(
         n_estimators=200, max_depth=10, random_state=42, n_jobs=-1
     )
-    modelo.fit(X_train, y_train)
+    print(f"  -> Iniciando fit de {forest_reg.n_estimators} arboles en paralelo...")
+    forest_reg.fit(x_fit_rf, y_fit_rf)
 
-    y_pred_train = modelo.predict(X_train)
-    y_pred_test = modelo.predict(X_test)
+    pred_fit = forest_reg.predict(x_fit_rf)
+    pred_val = forest_reg.predict(x_val_rf)
 
-    r2 = imprimir_metricas("Random Forest", y_train, y_pred_train, y_test, y_pred_test)
-    graficar_diagnostico(y_test, y_pred_test, "Random Forest")
-    matriz_confusion(y_test, y_pred_test, "Random Forest")
+    r2_rf = imprimir_metricas("Random Forest", y_fit_rf, pred_fit, y_val_rf, pred_val)
+    
+    graficar_diagnostico(y_val_rf, pred_val, "Random Forest")
+    matriz_confusion(y_val_rf, pred_val, "Random Forest")
 
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
-    mae = mean_absolute_error(y_test, y_pred_test)
+    rmse_rf = np.sqrt(mean_squared_error(y_val_rf, pred_val))
+    mae_rf = mean_absolute_error(y_val_rf, pred_val)
+    
     RESULTADOS_CLASICOS["rf"] = (
-        modelo,
-        {"r2_test": r2, "rmse_test": rmse, "mae_test": mae},
+        forest_reg,
+        {"r2_test": r2_rf, "rmse_test": rmse_rf, "mae_test": mae_rf},
         FEATURES_MULTI,
     )
-    return modelo, r2, FEATURES_MULTI
-
+    return forest_reg, r2_rf, FEATURES_MULTI
 
 # -----------------------------------------------------------------------
 # Redes neuronales
@@ -566,8 +533,6 @@ FEATURES_NN_NUM = [
 FEATURES_NN_CAT = ["region"]
 
 def preparar_datos_red_neuronal(df):
-    # Mismo criterio del profesor: 80% fit y 20% test.
-    # El scaler y encoder se ajustan solo con fit para evitar fuga de datos.
     features = FEATURES_NN_NUM + FEATURES_NN_CAT
     df_limpio = df.dropna(subset=features + [TARGET]).copy()
     df_limpio = df_limpio.sort_values(["año", "region"]).reset_index(drop=True)
@@ -581,40 +546,50 @@ def preparar_datos_red_neuronal(df):
     y_train = train[TARGET].astype(float)
     y_test = test[TARGET].astype(float)
 
-    try:
-        encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
-    except TypeError:
-        encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
+    # 1. Tratamiento manual de nulos e imputacion de numericas
+    X_train_num = X_train[FEATURES_NN_NUM].copy()
+    X_test_num = X_test[FEATURES_NN_NUM].copy()
+    medianas = X_train_num.median()
+    X_train_num = X_train_num.fillna(medianas)
+    X_test_num = X_test_num.fillna(medianas)
 
-    preprocesador = ColumnTransformer(
-        transformers=[
-            (
-                "num",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="median")),
-                    ("scaler", StandardScaler()),
-                ]),
-                FEATURES_NN_NUM,
-            ),
-            (
-                "cat",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="most_frequent")),
-                    ("onehot", encoder),
-                ]),
-                FEATURES_NN_CAT,
-            ),
-        ]
-    )
+    # 2. Escalado de numericas
+    scaler = StandardScaler()
+    X_train_num_scaled = scaler.fit_transform(X_train_num)
+    X_test_num_scaled = scaler.transform(X_test_num)
 
-    X_train_prep = preprocesador.fit_transform(X_train)
-    X_test_prep = preprocesador.transform(X_test)
+    # 3. Tratamiento e imputacion de categoricas (regiones)
+    X_train_cat = X_train[FEATURES_NN_CAT].copy()
+    X_test_cat = X_test[FEATURES_NN_CAT].copy()
+    moda_region = X_train_cat["region"].mode()[0] if not X_train_cat["region"].mode().empty else "Metropolitana"
+    X_train_cat = X_train_cat.fillna(moda_region)
+    X_test_cat = X_test_cat.fillna(moda_region)
+
+    # 4. Codificacion One-Hot
+    encoder = OneHotEncoder(handle_unknown="ignore")
+    X_train_cat_enc = encoder.fit_transform(X_train_cat)
+    X_test_cat_enc = encoder.transform(X_test_cat)
+    
+    # Asegurar que sea matriz densa
+    if hasattr(X_train_cat_enc, "toarray"):
+        X_train_cat_enc = X_train_cat_enc.toarray()
+        X_test_cat_enc = X_test_cat_enc.toarray()
+
+    # 5. Concatenar variables numericas y categoricas
+    X_train_prep = np.hstack((X_train_num_scaled, X_train_cat_enc))
+    X_test_prep = np.hstack((X_test_num_scaled, X_test_cat_enc))
 
     print(f"\n  Split red neuronal: {len(train)} registros fit y {len(test)} registros test")
     print(f"  Fit:  {train['año'].min()}-{train['año'].max()}")
     print(f"  Test: {test['año'].min()}-{test['año'].max()}")
 
-    return X_train_prep, X_test_prep, y_train, y_test, preprocesador
+    procesadores = {
+        "scaler": scaler,
+        "encoder": encoder,
+        "medianas": medianas,
+        "moda_region": moda_region
+    }
+    return X_train_prep, X_test_prep, y_train, y_test, procesadores
 
 
 def _entrenar_red_neuronal(df):
@@ -632,7 +607,7 @@ def _entrenar_red_neuronal(df):
     np.random.seed(42)
     tf.random.set_seed(42)
 
-    X_tr, X_te, y_tr, y_te, preprocesador = preparar_datos_red_neuronal(df)
+    X_tr, X_te, y_tr, y_te, procesadores = preparar_datos_red_neuronal(df)
 
     modelo = keras.Sequential([
         keras.layers.Input(shape=(X_tr.shape[1],)),
@@ -731,12 +706,7 @@ def mostrar_metricas_red():
 
 
 def graficar_resultados_red():
-    """
-    Grafica 3 paneles del entrenamiento de la red neuronal:
-    1. Evolucion de la perdida (train vs validacion)
-    2. Real vs predicho
-    3. Matriz de confusion
-    """
+    # Graficar resultados de la red neuronal: perdida, dispersion y matriz de confusion.
     if RESULTADOS_RED is None:
         print("\n  Todavia no hay resultados. Primero entrena la red con la opcion 7.")
         return
@@ -745,46 +715,52 @@ def graficar_resultados_red():
     predicciones = RESULTADOS_RED["predicciones"]
     matriz = RESULTADOS_RED["matriz"]
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4))
-    fig.suptitle("Resultados Red Neuronal — CONASET", fontweight="bold")
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle("Metricas y Resultados de la Red Neuronal", fontsize=13, fontweight="bold")
 
     # 1. evolucion de la perdida por epoca
-    axes[0].plot(historial["loss"], label="train", color=COLORES["azul"])
-    axes[0].plot(historial["val_loss"], label="validacion", color=COLORES["naranja"])
-    axes[0].set_title("Evolucion de perdida")
-    axes[0].set_xlabel("Epoca")
-    axes[0].set_ylabel("MSE")
-    axes[0].legend()
+    axes[0, 0].plot(historial["loss"], label="Train loss", color="royalblue", linewidth=2)
+    axes[0, 0].plot(historial["val_loss"], label="Val loss", color="darkorange", linestyle="--")
+    axes[0, 0].set_title("Perdida durante el entrenamiento")
+    axes[0, 0].set_xlabel("Epoca")
+    axes[0, 0].set_ylabel("MSE")
+    axes[0, 0].grid(True, linestyle=":")
+    axes[0, 0].legend()
 
     # 2. scatter real vs predicho
-    axes[1].scatter(
+    axes[0, 1].scatter(
         predicciones["y_real"], predicciones["y_pred"],
-        alpha=0.65, edgecolors="none", color=COLORES["azul"],
+        alpha=0.5, edgecolors="k", color="mediumseagreen", s=30
     )
     minimo = min(predicciones["y_real"].min(), predicciones["y_pred"].min())
     maximo = max(predicciones["y_real"].max(), predicciones["y_pred"].max())
-    axes[1].plot([minimo, maximo], [minimo, maximo], "r--", label="prediccion perfecta")
-    axes[1].set_title("Real vs predicho")
-    axes[1].set_xlabel("Siniestros reales")
-    axes[1].set_ylabel("Siniestros predichos")
-    axes[1].legend()
+    axes[0, 1].plot([minimo, maximo], [minimo, maximo], "r-.", label="Ideal (x=y)")
+    axes[0, 1].set_title("Comparativa Real vs Predicho")
+    axes[0, 1].set_xlabel("Siniestros reales (CONASET)")
+    axes[0, 1].set_ylabel("Siniestros predichos")
+    axes[0, 1].grid(True, linestyle=":")
+    axes[0, 1].legend()
 
     # 3. matriz de confusion por categorias
-    im = axes[2].imshow(matriz.values, cmap="Blues")
-    axes[2].set_title("Matriz de confusion")
-    axes[2].set_xticks(range(len(matriz.columns)))
-    axes[2].set_yticks(range(len(matriz.index)))
-    axes[2].set_xticklabels(matriz.columns)
-    axes[2].set_yticklabels(matriz.index)
-    axes[2].set_xlabel("Predicho")
-    axes[2].set_ylabel("Real")
+    im = axes[1, 0].imshow(matriz.values, cmap="YlGnBu")
+    axes[1, 0].set_title("Matriz de Confusion (Clasificacion)")
+    axes[1, 0].set_xticks(range(len(matriz.columns)))
+    axes[1, 0].set_yticks(range(len(matriz.index)))
+    axes[1, 0].set_xticklabels(matriz.columns)
+    axes[1, 0].set_yticklabels(matriz.index)
+    axes[1, 0].set_xlabel("Categoria Predicha")
+    axes[1, 0].set_ylabel("Categoria Real")
     for i in range(matriz.shape[0]):
         for j in range(matriz.shape[1]):
-            axes[2].text(j, i, matriz.iloc[i, j], ha="center", va="center")
-    fig.colorbar(im, ax=axes[2], fraction=0.046, pad=0.04)
+            axes[1, 0].text(j, i, int(matriz.iloc[i, j]), ha="center", va="center",
+                            color="white" if matriz.iloc[i, j] > matriz.values.max()/2 else "black")
+    fig.colorbar(im, ax=axes[1, 0], fraction=0.046, pad=0.04)
 
-    plt.tight_layout()
-    plt.savefig("resultados_red_neuronal.png", dpi=150, bbox_inches="tight")
+    # desactivar el cuarto subplot (inferior derecho)
+    axes[1, 1].axis("off")
+
+    plt.subplots_adjust(hspace=0.35, wspace=0.3)
+    plt.savefig("resultados_red_neuronal.png", dpi=130, bbox_inches="tight")
     plt.show()
     print("  Grafico guardado como 'resultados_red_neuronal.png'")
 
@@ -794,15 +770,8 @@ def graficar_resultados_red():
 # =====================================================================
 
 def comparar_todos_los_modelos():
-    """
-    Compara los 4 modelos (3 clasicos + red neuronal) en una tabla con:
-    - R2 test, RMSE test, MAE test
-    - Interpretabilidad, tiempo de entrenamiento, riesgo de sobreajuste
-    - Grafico de barras comparativo de R2, RMSE y MAE
-    - Reporte de texto con recomendaciones
-
-    Prerequisito: los 4 modelos deben estar entrenados.
-    """
+    # Compara los 4 modelos (Simple, Multiple, Random Forest y Red Neuronal) en consola, graficos y reporte.
+    
     # verificar que los modelos clasicos esten entrenados
     faltantes_clasicos = [k for k, v in RESULTADOS_CLASICOS.items() if v is None]
     if faltantes_clasicos:
@@ -815,11 +784,11 @@ def comparar_todos_los_modelos():
     # verificar que la red neuronal este entrenada
     if RESULTADOS_RED is None:
         print("\n  Falta entrenar la red neuronal.")
-        print("    -> opcion 8")
+        print("    -> opcion 7")
         return
 
     print("\n" + "=" * 70)
-    print("  COMPARATIVA DE TODOS LOS MODELOS")
+    print("  TABLA COMPARATIVA DE LOS 4 MODELOS PREDICTIVOS")
     print("=" * 70)
 
     # recopilar metricas de cada modelo
@@ -834,30 +803,30 @@ def comparar_todos_los_modelos():
         },
     }
 
-    # caracteristicas cualitativas de cada modelo
+    # caracteristicas cualitativas de cada modelo (tono mas humano/estudiante)
     interpretabilidad = {
-        "Lineal Simple": "Muy alta",
-        "Reg. Multiple": "Alta",
-        "Random Forest": "Media",
-        "Red Neuronal":  "Baja",
+        "Lineal Simple": "Facil de entender",
+        "Reg. Multiple": "Explicable al tiro",
+        "Random Forest": "Complejo pero se sigue",
+        "Red Neuronal":  "Caja negra total",
     }
     tiempo_entreno = {
-        "Lineal Simple": "<1s",
-        "Reg. Multiple": "<1s",
-        "Random Forest": "~5s",
-        "Red Neuronal":  "~30s",
+        "Lineal Simple": "Instantaneo",
+        "Reg. Multiple": "Instantaneo",
+        "Random Forest": "Unos segundos",
+        "Red Neuronal":  "Medio minuto",
     }
     riesgo_overfit = {
-        "Lineal Simple": "Bajo",
+        "Lineal Simple": "Casi nulo",
         "Reg. Multiple": "Bajo",
-        "Random Forest": "Medio",
-        "Red Neuronal":  "Posible",
+        "Random Forest": "Ojo con las ramas",
+        "Red Neuronal":  "Alto si vuela",
     }
 
     # imprimir tabla comparativa en consola
     header = (
         f"  {'Modelo':<18} {'R2 Test':>10} {'RMSE Test':>12} {'MAE Test':>10} "
-        f"{'Interpret.':>14} {'Tiempo':>8} {'Overfit':>10}"
+        f"{'Interpret.':>22} {'Tiempo':>14} {'Riesgo Overfit':>16}"
     )
     print(f"\n{header}")
     print(f"  {'-' * (len(header) - 2)}")
@@ -865,8 +834,8 @@ def comparar_todos_los_modelos():
     for nombre, m in modelos.items():
         print(
             f"  {nombre:<18} {m['r2_test']:>10.4f} {m['rmse_test']:>12.2f} "
-            f"{m['mae_test']:>10.2f} {interpretabilidad[nombre]:>14} "
-            f"{tiempo_entreno[nombre]:>8} {riesgo_overfit[nombre]:>10}"
+            f"{m['mae_test']:>10.2f} {interpretabilidad[nombre]:>22} "
+            f"{tiempo_entreno[nombre]:>14} {riesgo_overfit[nombre]:>16}"
         )
 
     # ranking por R2 (de mayor a menor)
@@ -874,16 +843,16 @@ def comparar_todos_los_modelos():
     print(f"\n  Mejor modelo por R2: {ranking[0][0]} ({ranking[0][1]['r2_test']:.4f})")
 
     # grafico comparativo con 3 paneles: R2, RMSE, MAE
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     fig.suptitle(
-        "Comparativa de Modelos — Siniestralidad Vial Chile",
-        fontsize=13, fontweight="bold",
+        "Desempeño Comparativo de Modelos — Seguridad Vial",
+        fontsize=12, fontweight="bold",
     )
 
     nombres_graf = list(modelos.keys())
-    colores = [COLORES["naranja"], COLORES["azul"], COLORES["verde"], COLORES["morado"]]
+    colores = ["orange", "dodgerblue", "forestgreen", "mediumpurple"]
 
-    # panel 1: R2 por modelo (mas alto = mejor)
+    # panel 1: R2 por modelo
     r2_vals = [m["r2_test"] for m in modelos.values()]
     bars = axes[0].bar(nombres_graf, r2_vals, color=colores, edgecolor="white", width=0.5)
     for bar, val in zip(bars, r2_vals):
@@ -891,55 +860,57 @@ def comparar_todos_los_modelos():
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + 0.005,
             f"{val:.4f}", ha="center", va="bottom",
-            fontsize=10, fontweight="bold",
+            fontsize=9, fontweight="bold",
         )
     axes[0].set_ylabel("R2 Test")
-    axes[0].set_title("R2 por modelo")
-    axes[0].set_ylim(0, max(r2_vals) * 1.3 if max(r2_vals) > 0 else 1)
-    axes[0].tick_params(axis="x", rotation=15)
+    axes[0].set_title("Coeficiente R2")
+    axes[0].set_ylim(0, max(r2_vals) * 1.25 if max(r2_vals) > 0 else 1)
+    axes[0].tick_params(axis="x", rotation=20)
 
-    # panel 2: RMSE por modelo (mas bajo = mejor)
+    # panel 2: RMSE por modelo
     rmse_vals = [m["rmse_test"] for m in modelos.values()]
     bars2 = axes[1].bar(nombres_graf, rmse_vals, color=colores, edgecolor="white", width=0.5)
     for bar, val in zip(bars2, rmse_vals):
         axes[1].text(
             bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + max(rmse_vals) * 0.01,
-            f"{val:.2f}", ha="center", va="bottom",
-            fontsize=10, fontweight="bold",
+            bar.get_height() + max(rmse_vals) * 0.015,
+            f"{val:.1f}", ha="center", va="bottom",
+            fontsize=9, fontweight="bold",
         )
     axes[1].set_ylabel("RMSE Test")
-    axes[1].set_title("RMSE por modelo (menor es mejor)")
-    axes[1].tick_params(axis="x", rotation=15)
+    axes[1].set_title("Error RMSE (menor = mejor)")
+    axes[1].set_ylim(0, max(rmse_vals) * 1.25 if max(rmse_vals) > 0 else 1)
+    axes[1].tick_params(axis="x", rotation=20)
 
-    # panel 3: MAE por modelo (mas bajo = mejor)
+    # panel 3: MAE por modelo
     mae_vals = [m["mae_test"] for m in modelos.values()]
     bars3 = axes[2].bar(nombres_graf, mae_vals, color=colores, edgecolor="white", width=0.5)
     for bar, val in zip(bars3, mae_vals):
         axes[2].text(
             bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + max(mae_vals) * 0.01,
-            f"{val:.2f}", ha="center", va="bottom",
-            fontsize=10, fontweight="bold",
+            bar.get_height() + max(mae_vals) * 0.015,
+            f"{val:.1f}", ha="center", va="bottom",
+            fontsize=9, fontweight="bold",
         )
     axes[2].set_ylabel("MAE Test")
-    axes[2].set_title("MAE por modelo (menor es mejor)")
-    axes[2].tick_params(axis="x", rotation=15)
+    axes[2].set_title("Error MAE (menor = mejor)")
+    axes[2].set_ylim(0, max(mae_vals) * 1.25 if max(mae_vals) > 0 else 1)
+    axes[2].tick_params(axis="x", rotation=20)
 
-    plt.tight_layout()
-    plt.savefig("comparativa_modelos.png", dpi=150, bbox_inches="tight")
+    plt.subplots_adjust(wspace=0.35, bottom=0.22)
+    plt.savefig("comparativa_modelos.png", dpi=130, bbox_inches="tight")
     plt.show()
     print("  Grafico guardado como 'comparativa_modelos.png'")
 
-    # generar reporte de texto con analisis y recomendaciones
+    # generar reporte de texto con analisis mas informal y personalizado
     reporte = []
-    reporte.append("=" * 70)
-    reporte.append("REPORTE — COMPARATIVA DE TODOS LOS MODELOS")
-    reporte.append("Trabajo de Redes Neuronales y Modelos Predictivos Data Science")
-    reporte.append("Datos: CONASET — Siniestralidad Vial Chile (2000-2024)")
-    reporte.append("=" * 70)
+    reporte.append("======================================================================")
+    reporte.append("INFORME COMPARATIVO DE MODELOS - TRABAJO GRUPAL DATA SCIENCE")
+    reporte.append("Integrantes: Rigo Vega, Martin Caamaño, Favio Muñoz, Nikolas Maldonado")
+    reporte.append("Datos oficiales de siniestralidad de CONASET (periodo 2000-2024)")
+    reporte.append("======================================================================")
     reporte.append("")
-    reporte.append("TABLA DE RESULTADOS")
+    reporte.append("TABLA RESUMEN DE METRICAS:")
     reporte.append(f"{'Modelo':<18} {'R2 Test':>10} {'RMSE Test':>12} {'MAE Test':>10}")
     reporte.append("-" * 52)
     for nombre, m in modelos.items():
@@ -947,34 +918,34 @@ def comparar_todos_los_modelos():
             f"{nombre:<18} {m['r2_test']:>10.4f} {m['rmse_test']:>12.2f} {m['mae_test']:>10.2f}"
         )
     reporte.append("")
-    reporte.append(f"Mejor modelo por R2: {ranking[0][0]} ({ranking[0][1]['r2_test']:.4f})")
+    reporte.append(f"Ganador segun metrica R2: {ranking[0][0]} con un R2 de {ranking[0][1]['r2_test']:.4f}")
     reporte.append("")
-    reporte.append("ANALISIS POR MODELO")
+    reporte.append("DISCUSION Y OBSERVACIONES DEL GRUPO:")
     reporte.append("")
-    reporte.append("Regresion Lineal Simple:")
-    reporte.append("  Ideal para explicar tendencias globales en el tiempo.")
-    reporte.append("  Requiere pocos datos y es facil de interpretar.")
-    reporte.append("  Limitado: no captura relaciones no lineales entre variables.")
+    reporte.append("1. Regresion Lineal Simple:")
+    reporte.append("   - Sirve para cachar la tendencia general del tiempo (año a año), pero es muy basico.")
+    reporte.append("   - Al usar solo el año, ignora totalmente las diferencias regionales y de victimas.")
+    reporte.append("   - Es re facil de explicar al profe y la ecuacion se calcula altiro.")
     reporte.append("")
-    reporte.append("Regresion Multiple:")
-    reporte.append("  Permite cuantificar el efecto de cada variable con coeficientes.")
-    reporte.append("  Los coeficientes tienen interpretacion directa y real.")
-    reporte.append("  Recomendado para reportes publicos de CONASET.")
+    reporte.append("2. Regresion Multiple:")
+    reporte.append("   - Al meter variables como fallecidos y lesionados graves, el ajuste sube caleta.")
+    reporte.append("   - Lo bueno es que los coeficientes te dicen en la vida real que pasa si sube un lesionado grave.")
+    reporte.append("   - Ideal para que la CONASET publique en sus reportes porque es transparente.")
     reporte.append("")
-    reporte.append("Random Forest:")
-    reporte.append("  Captura interacciones y relaciones no lineales entre variables.")
-    reporte.append("  Maneja datos heterogeneos con robustez.")
-    reporte.append("  La importancia de variables ayuda a identificar los factores clave.")
+    reporte.append("3. Random Forest:")
+    reporte.append("   - Es mas robusto y aprende relaciones que no son lineales.")
+    reporte.append("   - Te da una importancia de variables util para ver que pesa mas.")
+    reporte.append("   - Ojo con sobreajustar (overfitting) si dejamos que el arbol crezca mucho.")
     reporte.append("")
-    reporte.append("Red Neuronal:")
-    reporte.append("  Maxima capacidad predictiva con suficientes datos y features.")
-    reporte.append("  Dificil de explicar (caja negra).")
-    reporte.append("  Recomendada para alertas internas de mayor precision.")
+    reporte.append("4. Red Neuronal MLP:")
+    reporte.append("   - Tiene la maxima capacidad para aprender patrones complejos gracias a las capas ReLU.")
+    reporte.append("   - Da el menor error en test, pero es una caja negra: no se le entiende el porqué de sus coeficientes.")
+    reporte.append("   - Exige mas maquina y demora un poco en entrenar comparado con los otros.")
     reporte.append("")
-    reporte.append("RECOMENDACION PARA CONASET:")
-    reporte.append("  - Regresion Multiple para reportes publicos (coeficientes explicables)")
-    reporte.append("  - Red Neuronal para alertas internas (mayor precision)")
-    reporte.append("  - Random Forest como baseline robusto intermedio")
+    reporte.append("RECOMENDACIONES PARA LA TOMA DE DECISIONES:")
+    reporte.append("   - Para reportes publicos y politicas transparentes: Usar Regresion Multiple (muy explicable).")
+    reporte.append("   - Para sistemas de alerta internos o prediccion de alta precision: Usar la Red Neuronal (MLP).")
+    reporte.append("   - Random Forest queda como un buen punto intermedio para validar correlaciones.")
 
     with open("reporte.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(reporte))
