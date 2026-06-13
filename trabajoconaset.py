@@ -47,6 +47,7 @@ CSV_CACHE = "datos_conaset.csv"
 # multiple: mas variables porque claramente influyen en el resultado po :v
 FEATURES_SIMPLE = ["anio"]
 FEATURES_MULTI  = ["anio", "region_num", "fallecidos", "lesionados_graves"]
+TARGET = "siniestros"
 
 COLORES = {
     "azul":    "#2563EB",
@@ -456,6 +457,69 @@ def comparar_modelos(resultados):
     print(f"\n  El mejor modelo es '{mejor}'.")
     print("  Igual la Regresion Multiple sirve porque los coeficientes se pueden")
     print("  explicar en terminos reales, algo que con Random Forest es mas dificil.")
+
+
+FEATURES_NN_NUM = [
+    "anio",
+    "region_num",
+    "fallecidos",
+    "lesionados_graves",
+    "lesionados_leves",
+    "tasa_mortalidad",
+]
+
+FEATURES_NN_CAT = ["region"]
+
+def preparar_datos_red_neuronal(df):
+    # Mismo criterio del profesor: 80% fit y 20% test.
+    # El scaler y encoder se ajustan solo con fit para evitar fuga de datos.
+    features = FEATURES_NN_NUM + FEATURES_NN_CAT
+    df_limpio = df.dropna(subset=features + [TARGET]).copy()
+    df_limpio = df_limpio.sort_values(["anio", "region"]).reset_index(drop=True)
+
+    corte = int(len(df_limpio) * 0.80)
+    train = df_limpio.iloc[:corte]
+    test = df_limpio.iloc[corte:]
+
+    X_train = train[features]
+    X_test = test[features]
+    y_train = train[TARGET].astype(float)
+    y_test = test[TARGET].astype(float)
+
+    try:
+        encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+    except TypeError:
+        encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
+
+    preprocesador = ColumnTransformer(
+        transformers=[
+            (
+                "num",
+                Pipeline([
+                    ("imputer", SimpleImputer(strategy="median")),
+                    ("scaler", StandardScaler()),
+                ]),
+                FEATURES_NN_NUM,
+            ),
+            (
+                "cat",
+                Pipeline([
+                    ("imputer", SimpleImputer(strategy="most_frequent")),
+                    ("onehot", encoder),
+                ]),
+                FEATURES_NN_CAT,
+            ),
+        ]
+    )
+
+    X_train_prep = preprocesador.fit_transform(X_train)
+    X_test_prep = preprocesador.transform(X_test)
+
+    print(f"\n  Split red neuronal: {len(train)} registros fit y {len(test)} registros test")
+    print(f"  Fit:  {train['anio'].min()}-{train['anio'].max()}")
+    print(f"  Test: {test['anio'].min()}-{test['anio'].max()}")
+
+    return X_train_prep, X_test_prep, y_train, y_test, preprocesador
 
 
 # -----------------------------------------------------------------------

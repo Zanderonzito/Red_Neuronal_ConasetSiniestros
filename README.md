@@ -8,3 +8,9 @@
 
 Profesor aqui para correr el código, descarga el Excel desde el link de arriba
 y lo pone en la carpeta "trabajoconaset"
+
+Integrantes:
+Martin Caamaño
+Nikolas Maldonado
+Favio Muños
+Rigo Vega
