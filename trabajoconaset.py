@@ -45,8 +45,8 @@ CSV_CACHE = "datos_conaset.csv"
 # features para cada modelo predictivo
 # simple: solo el año, para ver tendencia en el tiempo
 # multiple: mas variables porque claramente influyen en el resultado po :v
-FEATURES_SIMPLE = ["anio"]
-FEATURES_MULTI  = ["anio", "region_num", "fallecidos", "lesionados_graves"]
+FEATURES_SIMPLE = ["año"]
+FEATURES_MULTI  = ["año", "region_num", "fallecidos", "lesionados_graves"]
 TARGET = "siniestros"
 
 COLORES = {
@@ -99,7 +99,7 @@ def verificar_api_conaset():
 # lectura del excel
 # -----------------------------------------------------------------------
 
-def leer_hoja(df_hoja, anio):
+def leer_hoja(df_hoja, año):
     # aqui mas que to sacamos la fila 0 que tiene los subheaders y resetear indice
     df = df_hoja.iloc[1:].copy() 
     df = df.reset_index(drop=True)
@@ -121,7 +121,7 @@ def leer_hoja(df_hoja, anio):
         elif sub == "leves": rename[c] = "lesionados_leves"
 
     df = df.rename(columns=rename)
-    df["anio"] = int(anio)
+    df["año"] = int(año)
     return df
 # -----------------------------------------------------------------------
 # limpieza de datos
@@ -135,7 +135,7 @@ def limpiar_datos(df):
 
     # convertir a numerico las columnas que deberían serlo
     # errors='coerce' convierte lo que no sea numero a NaN en vez de explotar
-    cols_numericas = ["anio", "siniestros", "fallecidos",
+    cols_numericas = ["año", "siniestros", "fallecidos",
                       "lesionados_graves", "lesionados_leves"]
     for col in cols_numericas:
         if col in df.columns:
@@ -150,7 +150,7 @@ def limpiar_datos(df):
 
     # sacar filas donde falten los datos principales
     antes = len(df)
-    df = df.dropna(subset=["anio", "region", "siniestros"])
+    df = df.dropna(subset=["año", "region", "siniestros"])
     if antes - len(df) > 0:
         print(f"  filas con nulos eliminadas: {antes - len(df)}")
 
@@ -276,10 +276,10 @@ def hacer_graficos_exploratorios(df):
                  fontsize=14, fontweight="bold")
     
     # 1. tendencia anual
-    por_anio = df.groupby("anio")["siniestros"].sum().reset_index()
-    axes[0,0].plot(por_anio["anio"], por_anio["siniestros"],
+    por_año = df.groupby("año")["siniestros"].sum().reset_index()
+    axes[0,0].plot(por_año["año"], por_año["siniestros"],
                    marker="o", color=COLORES["azul"], linewidth=2.5, markersize=6)
-    axes[0,0].fill_between(por_anio["anio"], por_anio["siniestros"],
+    axes[0,0].fill_between(por_año["año"], por_año["siniestros"],
                             alpha=0.1, color=COLORES["azul"])
     axes[0,0].set_title("Evolucion anual de siniestros")
     axes[0,0].set_xlabel("Año")
@@ -331,7 +331,7 @@ def preparar_split(df, features):
     # Profe, aquí separamos 80% fit y 20% test y después
     # y después los ordenamos por año mas que todo para que el test quede con datos mas recientes.
     df_limpio = df.dropna(subset=features + ["siniestros"]).copy()
-    df_limpio = df_limpio.sort_values(["anio", "region"]).reset_index(drop=True)
+    df_limpio = df_limpio.sort_values(["año", "region"]).reset_index(drop=True)
     corte = int(len(df_limpio) * 0.80)
     train = df_limpio.iloc[:corte]
     test = df_limpio.iloc[corte:]
@@ -340,8 +340,8 @@ def preparar_split(df, features):
     y_train = train["siniestros"]
     y_test = test["siniestros"]
     print(f"\n  Split de datos: {len(train)} registros fit y {len(test)} registros test")
-    print(f"  Fit:  {train['anio'].min()}-{train['anio'].max()}")
-    print(f"  Test: {test['anio'].min()}-{test['anio'].max()}")
+    print(f"  Fit:  {train['año'].min()}-{train['año'].max()}")
+    print(f"  Test: {test['año'].min()}-{test['año'].max()}")
     return X_train, X_test, y_train, y_test
 
 def imprimir_metricas(nombre, y_train, y_pred_train, y_test, y_pred_test):
@@ -555,7 +555,7 @@ def _entrenar_rf(df):
 
 
 FEATURES_NN_NUM = [
-    "anio",
+    "año",
     "region_num",
     "fallecidos",
     "lesionados_graves",
@@ -570,7 +570,7 @@ def preparar_datos_red_neuronal(df):
     # El scaler y encoder se ajustan solo con fit para evitar fuga de datos.
     features = FEATURES_NN_NUM + FEATURES_NN_CAT
     df_limpio = df.dropna(subset=features + [TARGET]).copy()
-    df_limpio = df_limpio.sort_values(["anio", "region"]).reset_index(drop=True)
+    df_limpio = df_limpio.sort_values(["año", "region"]).reset_index(drop=True)
 
     corte = int(len(df_limpio) * 0.80)
     train = df_limpio.iloc[:corte]
@@ -611,8 +611,8 @@ def preparar_datos_red_neuronal(df):
     X_test_prep = preprocesador.transform(X_test)
 
     print(f"\n  Split red neuronal: {len(train)} registros fit y {len(test)} registros test")
-    print(f"  Fit:  {train['anio'].min()}-{train['anio'].max()}")
-    print(f"  Test: {test['anio'].min()}-{test['anio'].max()}")
+    print(f"  Fit:  {train['año'].min()}-{train['año'].max()}")
+    print(f"  Test: {test['año'].min()}-{test['año'].max()}")
 
     return X_train_prep, X_test_prep, y_train, y_test, preprocesador
 
@@ -986,11 +986,11 @@ def comparar_todos_los_modelos():
 # =====================================================================
 
 def main():
-    print("\n" + "█" * 60)
+    print("\n" + "=" * 60)
     print("  TRABAJO DE REDES NEURONALES Y MODELOS PREDICTIVOS")
     print("  DATA SCIENCE")
     print("  Fuente: Observatorio CONASET (2000-2024)")
-    print("█" * 60)
+    print("=" * 60)
 
     verificar_api_conaset()
     df = cargar_datos()
@@ -1010,9 +1010,9 @@ def main():
         print("   3. Graficos exploratorios")
         print("")
         print("  [ Modelos Clasicos ]")
-        print("   4. Regresion Lineal Simple")
-        print("   5. Regresion Multiple")
-        print("   6. Random Forest")
+        print("   4. Entrenar Regresion Lineal Simple")
+        print("   5. Entrenar Regresion Multiple")
+        print("   6. Entrenar Random Forest")
         print("")
         print("  [ Red Neuronal ]")
         print("   7. Entrenar red neuronal")
@@ -1066,4 +1066,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
