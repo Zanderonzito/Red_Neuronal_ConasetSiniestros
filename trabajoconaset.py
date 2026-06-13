@@ -55,6 +55,7 @@ COLORES = {
     "verde":   "#16A34A",
     "naranja": "#EA580C",
     "gris":    "#6B7280",
+    "morado":  "#7C3AED",
 }
 # mas que todo para las regiones
 REGIONES_NUM = {
@@ -63,6 +64,9 @@ REGIONES_NUM = {
     "Araucanía": 9, "Los Lagos": 10, "Aysén": 11, "Magallanes": 12,
     "Metropolitana": 13, "Los Ríos": 14, "Arica y Parinacota": 15, "Ñuble": 16,
 }
+# estado global de los modelos entrenados
+RESULTADOS_CLASICOS = {"simple": None, "multiple": None, "rf": None}
+RESULTADOS_RED = None
 # -----------------------------------------------------------------------
 # validacion de la API (mas que to pa justificar la fuente de datos)
 # -----------------------------------------------------------------------
@@ -459,6 +463,93 @@ def comparar_modelos(resultados):
     print("  explicar en terminos reales, algo que con Random Forest es mas dificil.")
 
 # -----------------------------------------------------------------------
+# entrenamiento de modelos clasicos
+# -----------------------------------------------------------------------
+
+def _entrenar_simple(df):
+    global RESULTADOS_CLASICOS
+    print("\n" + "="*50)
+    print("  MODELO 1 — Regresion Lineal Simple")
+    print("="*50)
+
+    X_train, X_test, y_train, y_test = preparar_split(df, FEATURES_SIMPLE)
+    modelo = LinearRegression()
+    modelo.fit(X_train, y_train)
+
+    y_pred_train = modelo.predict(X_train)
+    y_pred_test = modelo.predict(X_test)
+
+    r2 = imprimir_metricas("Lineal Simple", y_train, y_pred_train, y_test, y_pred_test)
+    graficar_diagnostico(y_test, y_pred_test, "Lineal Simple")
+    matriz_confusion(y_test, y_pred_test, "Lineal Simple")
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
+    mae = mean_absolute_error(y_test, y_pred_test)
+    RESULTADOS_CLASICOS["simple"] = (
+        modelo,
+        {"r2_test": r2, "rmse_test": rmse, "mae_test": mae},
+        FEATURES_SIMPLE,
+    )
+    return modelo, r2, FEATURES_SIMPLE
+
+
+def _entrenar_multiple(df):
+    global RESULTADOS_CLASICOS
+    print("\n" + "="*50)
+    print("  MODELO 2 — Regresion Multiple")
+    print("="*50)
+
+    X_train, X_test, y_train, y_test = preparar_split(df, FEATURES_MULTI)
+    modelo = LinearRegression()
+    modelo.fit(X_train, y_train)
+
+    y_pred_train = modelo.predict(X_train)
+    y_pred_test = modelo.predict(X_test)
+
+    r2 = imprimir_metricas("Regresion Multiple", y_train, y_pred_train, y_test, y_pred_test)
+    graficar_diagnostico(y_test, y_pred_test, "Regresion Multiple")
+    matriz_confusion(y_test, y_pred_test, "Regresion Multiple")
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
+    mae = mean_absolute_error(y_test, y_pred_test)
+    RESULTADOS_CLASICOS["multiple"] = (
+        modelo,
+        {"r2_test": r2, "rmse_test": rmse, "mae_test": mae},
+        FEATURES_MULTI,
+    )
+    return modelo, r2, FEATURES_MULTI
+
+
+def _entrenar_rf(df):
+    global RESULTADOS_CLASICOS
+    print("\n" + "="*50)
+    print("  MODELO 3 — Random Forest")
+    print("="*50)
+
+    X_train, X_test, y_train, y_test = preparar_split(df, FEATURES_MULTI)
+    modelo = RandomForestRegressor(
+        n_estimators=200, max_depth=10, random_state=42, n_jobs=-1
+    )
+    modelo.fit(X_train, y_train)
+
+    y_pred_train = modelo.predict(X_train)
+    y_pred_test = modelo.predict(X_test)
+
+    r2 = imprimir_metricas("Random Forest", y_train, y_pred_train, y_test, y_pred_test)
+    graficar_diagnostico(y_test, y_pred_test, "Random Forest")
+    matriz_confusion(y_test, y_pred_test, "Random Forest")
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred_test))
+    mae = mean_absolute_error(y_test, y_pred_test)
+    RESULTADOS_CLASICOS["rf"] = (
+        modelo,
+        {"r2_test": r2, "rmse_test": rmse, "mae_test": mae},
+        FEATURES_MULTI,
+    )
+    return modelo, r2, FEATURES_MULTI
+
+
+# -----------------------------------------------------------------------
 # Redes neuronales
 # -----------------------------------------------------------------------
 
@@ -532,7 +623,7 @@ def _entrenar_red_neuronal(df):
         from tensorflow import keras
     except ModuleNotFoundError:
         print("\n  Falta TensorFlow. Instala dependencias antes de entrenar la red neuronal.")
-        return None, 0, FEATURES_NN_NUM + FEATURES_NN_CAT
+        return None, 0, FEATURES_NN_NUM + FEATURES_NN_CAT, None, None, None
 
     print("\n" + "="*50)
     print("  MODELO 4 — Red Neuronal MLP")
@@ -563,7 +654,7 @@ def _entrenar_red_neuronal(df):
     print("  Activacion: ReLU")
     print("  Entrenando red neuronal...")
 
-    modelo.fit(
+    historial = modelo.fit(
         X_tr,
         y_tr,
         validation_split=0.15,
@@ -586,51 +677,352 @@ def _entrenar_red_neuronal(df):
     graficar_diagnostico(y_te, y_pred_te, "Red Neuronal MLP")
     matriz_confusion(y_te, y_pred_te, "Red Neuronal MLP")
 
-    return modelo, r2, FEATURES_NN_NUM + FEATURES_NN_CAT
+    return modelo, r2, FEATURES_NN_NUM + FEATURES_NN_CAT, historial, y_te, y_pred_te
 
-# -----------------------------------------------------------------------
-# menu principal
-# -----------------------------------------------------------------------
+def entrenar_red_neuronal(df):
+    global RESULTADOS_RED
+    modelo, r2, features, historial, y_te, y_pred_te = _entrenar_red_neuronal(df)
+
+    if modelo is None:
+        return
+
+    # construir matriz de confusion como DataFrame para los graficos
+    bins = [0, 2000, 4500, float("inf")]
+    labels = ["bajo", "medio", "alto"]
+    y_test_s = pd.Series(np.array(y_te).flatten()).reset_index(drop=True)
+    y_pred_s = pd.Series(np.array(y_pred_te).flatten()).reset_index(drop=True)
+    y_test_cat = pd.cut(y_test_s, bins=bins, labels=labels)
+    y_pred_cat = pd.cut(y_pred_s, bins=bins, labels=labels)
+    mask = y_test_cat.notna() & y_pred_cat.notna()
+    cm = confusion_matrix(
+        y_test_cat[mask].astype(str).values,
+        y_pred_cat[mask].astype(str).values,
+        labels=labels,
+    )
+    matriz_df = pd.DataFrame(cm, index=labels, columns=labels)
+
+    rmse = np.sqrt(mean_squared_error(y_te, y_pred_te))
+    mae = mean_absolute_error(y_te, y_pred_te)
+
+    RESULTADOS_RED = {
+        "historial": historial.history,
+        "predicciones": pd.DataFrame({
+            "y_real": np.array(y_te).flatten(),
+            "y_pred": np.array(y_pred_te).flatten(),
+        }),
+        "matriz": matriz_df,
+        "metricas": {"r2_test": r2, "rmse_test": rmse, "mae_test": mae},
+    }
+    print("\n  Resultados guardados. Usa opcion 9 para ver graficos.")
+
+
+def mostrar_metricas_red():
+    if RESULTADOS_RED is None:
+        print("\n  Todavia no hay resultados. Primero entrena la red con la opcion 7.")
+        return
+
+    m = RESULTADOS_RED["metricas"]
+    print("\n" + "="*50)
+    print("  METRICAS — Red Neuronal MLP")
+    print("="*50)
+    print(f"  R2 Test:   {m['r2_test']:.4f}")
+    print(f"  RMSE Test: {m['rmse_test']:.2f}")
+    print(f"  MAE Test:  {m['mae_test']:.2f}")
+
+
+def graficar_resultados_red():
+    """
+    Grafica 3 paneles del entrenamiento de la red neuronal:
+    1. Evolucion de la perdida (train vs validacion)
+    2. Real vs predicho
+    3. Matriz de confusion
+    """
+    if RESULTADOS_RED is None:
+        print("\n  Todavia no hay resultados. Primero entrena la red con la opcion 7.")
+        return
+
+    historial = RESULTADOS_RED["historial"]
+    predicciones = RESULTADOS_RED["predicciones"]
+    matriz = RESULTADOS_RED["matriz"]
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4))
+    fig.suptitle("Resultados Red Neuronal — CONASET", fontweight="bold")
+
+    # 1. evolucion de la perdida por epoca
+    axes[0].plot(historial["loss"], label="train", color=COLORES["azul"])
+    axes[0].plot(historial["val_loss"], label="validacion", color=COLORES["naranja"])
+    axes[0].set_title("Evolucion de perdida")
+    axes[0].set_xlabel("Epoca")
+    axes[0].set_ylabel("MSE")
+    axes[0].legend()
+
+    # 2. scatter real vs predicho
+    axes[1].scatter(
+        predicciones["y_real"], predicciones["y_pred"],
+        alpha=0.65, edgecolors="none", color=COLORES["azul"],
+    )
+    minimo = min(predicciones["y_real"].min(), predicciones["y_pred"].min())
+    maximo = max(predicciones["y_real"].max(), predicciones["y_pred"].max())
+    axes[1].plot([minimo, maximo], [minimo, maximo], "r--", label="prediccion perfecta")
+    axes[1].set_title("Real vs predicho")
+    axes[1].set_xlabel("Siniestros reales")
+    axes[1].set_ylabel("Siniestros predichos")
+    axes[1].legend()
+
+    # 3. matriz de confusion por categorias
+    im = axes[2].imshow(matriz.values, cmap="Blues")
+    axes[2].set_title("Matriz de confusion")
+    axes[2].set_xticks(range(len(matriz.columns)))
+    axes[2].set_yticks(range(len(matriz.index)))
+    axes[2].set_xticklabels(matriz.columns)
+    axes[2].set_yticklabels(matriz.index)
+    axes[2].set_xlabel("Predicho")
+    axes[2].set_ylabel("Real")
+    for i in range(matriz.shape[0]):
+        for j in range(matriz.shape[1]):
+            axes[2].text(j, i, matriz.iloc[i, j], ha="center", va="center")
+    fig.colorbar(im, ax=axes[2], fraction=0.046, pad=0.04)
+
+    plt.tight_layout()
+    plt.savefig("resultados_red_neuronal.png", dpi=150, bbox_inches="tight")
+    plt.show()
+    print("  Grafico guardado como 'resultados_red_neuronal.png'")
+
+
+# =====================================================================
+# COMPARACION DE TODOS LOS MODELOS
+# =====================================================================
+
+def comparar_todos_los_modelos():
+    """
+    Compara los 4 modelos (3 clasicos + red neuronal) en una tabla con:
+    - R2 test, RMSE test, MAE test
+    - Interpretabilidad, tiempo de entrenamiento, riesgo de sobreajuste
+    - Grafico de barras comparativo de R2, RMSE y MAE
+    - Reporte de texto con recomendaciones
+
+    Prerequisito: los 4 modelos deben estar entrenados.
+    """
+    # verificar que los modelos clasicos esten entrenados
+    faltantes_clasicos = [k for k, v in RESULTADOS_CLASICOS.items() if v is None]
+    if faltantes_clasicos:
+        nombres_menu = {"simple": "4", "multiple": "5", "rf": "6"}
+        print("\n  Faltan modelos clasicos por entrenar:")
+        for f in faltantes_clasicos:
+            print(f"    -> opcion {nombres_menu[f]} ({f})")
+        return
+
+    # verificar que la red neuronal este entrenada
+    if RESULTADOS_RED is None:
+        print("\n  Falta entrenar la red neuronal.")
+        print("    -> opcion 8")
+        return
+
+    print("\n" + "=" * 70)
+    print("  COMPARATIVA DE TODOS LOS MODELOS")
+    print("=" * 70)
+
+    # recopilar metricas de cada modelo
+    modelos = {
+        "Lineal Simple": RESULTADOS_CLASICOS["simple"][1],
+        "Reg. Multiple": RESULTADOS_CLASICOS["multiple"][1],
+        "Random Forest": RESULTADOS_CLASICOS["rf"][1],
+        "Red Neuronal":  {
+            "r2_test": RESULTADOS_RED["metricas"]["r2_test"],
+            "rmse_test": RESULTADOS_RED["metricas"]["rmse_test"],
+            "mae_test": RESULTADOS_RED["metricas"]["mae_test"],
+        },
+    }
+
+    # caracteristicas cualitativas de cada modelo
+    interpretabilidad = {
+        "Lineal Simple": "Muy alta",
+        "Reg. Multiple": "Alta",
+        "Random Forest": "Media",
+        "Red Neuronal":  "Baja",
+    }
+    tiempo_entreno = {
+        "Lineal Simple": "<1s",
+        "Reg. Multiple": "<1s",
+        "Random Forest": "~5s",
+        "Red Neuronal":  "~30s",
+    }
+    riesgo_overfit = {
+        "Lineal Simple": "Bajo",
+        "Reg. Multiple": "Bajo",
+        "Random Forest": "Medio",
+        "Red Neuronal":  "Posible",
+    }
+
+    # imprimir tabla comparativa en consola
+    header = (
+        f"  {'Modelo':<18} {'R2 Test':>10} {'RMSE Test':>12} {'MAE Test':>10} "
+        f"{'Interpret.':>14} {'Tiempo':>8} {'Overfit':>10}"
+    )
+    print(f"\n{header}")
+    print(f"  {'-' * (len(header) - 2)}")
+
+    for nombre, m in modelos.items():
+        print(
+            f"  {nombre:<18} {m['r2_test']:>10.4f} {m['rmse_test']:>12.2f} "
+            f"{m['mae_test']:>10.2f} {interpretabilidad[nombre]:>14} "
+            f"{tiempo_entreno[nombre]:>8} {riesgo_overfit[nombre]:>10}"
+        )
+
+    # ranking por R2 (de mayor a menor)
+    ranking = sorted(modelos.items(), key=lambda x: x[1]["r2_test"], reverse=True)
+    print(f"\n  Mejor modelo por R2: {ranking[0][0]} ({ranking[0][1]['r2_test']:.4f})")
+
+    # grafico comparativo con 3 paneles: R2, RMSE, MAE
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    fig.suptitle(
+        "Comparativa de Modelos — Siniestralidad Vial Chile",
+        fontsize=13, fontweight="bold",
+    )
+
+    nombres_graf = list(modelos.keys())
+    colores = [COLORES["naranja"], COLORES["azul"], COLORES["verde"], COLORES["morado"]]
+
+    # panel 1: R2 por modelo (mas alto = mejor)
+    r2_vals = [m["r2_test"] for m in modelos.values()]
+    bars = axes[0].bar(nombres_graf, r2_vals, color=colores, edgecolor="white", width=0.5)
+    for bar, val in zip(bars, r2_vals):
+        axes[0].text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.005,
+            f"{val:.4f}", ha="center", va="bottom",
+            fontsize=10, fontweight="bold",
+        )
+    axes[0].set_ylabel("R2 Test")
+    axes[0].set_title("R2 por modelo")
+    axes[0].set_ylim(0, max(r2_vals) * 1.3 if max(r2_vals) > 0 else 1)
+    axes[0].tick_params(axis="x", rotation=15)
+
+    # panel 2: RMSE por modelo (mas bajo = mejor)
+    rmse_vals = [m["rmse_test"] for m in modelos.values()]
+    bars2 = axes[1].bar(nombres_graf, rmse_vals, color=colores, edgecolor="white", width=0.5)
+    for bar, val in zip(bars2, rmse_vals):
+        axes[1].text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + max(rmse_vals) * 0.01,
+            f"{val:.2f}", ha="center", va="bottom",
+            fontsize=10, fontweight="bold",
+        )
+    axes[1].set_ylabel("RMSE Test")
+    axes[1].set_title("RMSE por modelo (menor es mejor)")
+    axes[1].tick_params(axis="x", rotation=15)
+
+    # panel 3: MAE por modelo (mas bajo = mejor)
+    mae_vals = [m["mae_test"] for m in modelos.values()]
+    bars3 = axes[2].bar(nombres_graf, mae_vals, color=colores, edgecolor="white", width=0.5)
+    for bar, val in zip(bars3, mae_vals):
+        axes[2].text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + max(mae_vals) * 0.01,
+            f"{val:.2f}", ha="center", va="bottom",
+            fontsize=10, fontweight="bold",
+        )
+    axes[2].set_ylabel("MAE Test")
+    axes[2].set_title("MAE por modelo (menor es mejor)")
+    axes[2].tick_params(axis="x", rotation=15)
+
+    plt.tight_layout()
+    plt.savefig("comparativa_modelos.png", dpi=150, bbox_inches="tight")
+    plt.show()
+    print("  Grafico guardado como 'comparativa_modelos.png'")
+
+    # generar reporte de texto con analisis y recomendaciones
+    reporte = []
+    reporte.append("=" * 70)
+    reporte.append("REPORTE — COMPARATIVA DE TODOS LOS MODELOS")
+    reporte.append("Trabajo de Redes Neuronales y Modelos Predictivos Data Science")
+    reporte.append("Datos: CONASET — Siniestralidad Vial Chile (2000-2024)")
+    reporte.append("=" * 70)
+    reporte.append("")
+    reporte.append("TABLA DE RESULTADOS")
+    reporte.append(f"{'Modelo':<18} {'R2 Test':>10} {'RMSE Test':>12} {'MAE Test':>10}")
+    reporte.append("-" * 52)
+    for nombre, m in modelos.items():
+        reporte.append(
+            f"{nombre:<18} {m['r2_test']:>10.4f} {m['rmse_test']:>12.2f} {m['mae_test']:>10.2f}"
+        )
+    reporte.append("")
+    reporte.append(f"Mejor modelo por R2: {ranking[0][0]} ({ranking[0][1]['r2_test']:.4f})")
+    reporte.append("")
+    reporte.append("ANALISIS POR MODELO")
+    reporte.append("")
+    reporte.append("Regresion Lineal Simple:")
+    reporte.append("  Ideal para explicar tendencias globales en el tiempo.")
+    reporte.append("  Requiere pocos datos y es facil de interpretar.")
+    reporte.append("  Limitado: no captura relaciones no lineales entre variables.")
+    reporte.append("")
+    reporte.append("Regresion Multiple:")
+    reporte.append("  Permite cuantificar el efecto de cada variable con coeficientes.")
+    reporte.append("  Los coeficientes tienen interpretacion directa y real.")
+    reporte.append("  Recomendado para reportes publicos de CONASET.")
+    reporte.append("")
+    reporte.append("Random Forest:")
+    reporte.append("  Captura interacciones y relaciones no lineales entre variables.")
+    reporte.append("  Maneja datos heterogeneos con robustez.")
+    reporte.append("  La importancia de variables ayuda a identificar los factores clave.")
+    reporte.append("")
+    reporte.append("Red Neuronal:")
+    reporte.append("  Maxima capacidad predictiva con suficientes datos y features.")
+    reporte.append("  Dificil de explicar (caja negra).")
+    reporte.append("  Recomendada para alertas internas de mayor precision.")
+    reporte.append("")
+    reporte.append("RECOMENDACION PARA CONASET:")
+    reporte.append("  - Regresion Multiple para reportes publicos (coeficientes explicables)")
+    reporte.append("  - Red Neuronal para alertas internas (mayor precision)")
+    reporte.append("  - Random Forest como baseline robusto intermedio")
+
+    with open("reporte.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(reporte))
+    print("  Reporte guardado como 'reporte.txt'")
+
+
+# =====================================================================
+# MENU PRINCIPAL
+# =====================================================================
 
 def main():
-    print("\n" + "█"*60)
-    print("  SEGURIDAD VIAL EN CHILE — ANALISIS DE SINIESTRALIDAD")
-    print("  Fuente: Observatorio CONASET / ArcGIS Open Data")
-    print("█"*60)
+    print("\n" + "█" * 60)
+    print("  TRABAJO DE REDES NEURONALES Y MODELOS PREDICTIVOS")
+    print("  DATA SCIENCE")
+    print("  Fuente: Observatorio CONASET (2000-2024)")
+    print("█" * 60)
 
     verificar_api_conaset()
     df = cargar_datos()
 
     if "region" not in df.columns or "siniestros" not in df.columns:
         print("\n  Error: no se mapearon bien las columnas del Excel.")
-        print("  Revisa la funcion mapear_columnas() y ajusta segun tu archivo.")
+        print("  Revisa las funciones de lectura y ajusta segun tu archivo.")
         return
 
-    # guardamos los modelos en memoria a medida que se van entrenando
-    # al principio todos en None, se van llenando con las opciones del menu
-    resultados = {
-        "simple":   None,
-        "multiple": None,
-        "rf":       None,
-        "nn":       None,
-    }
-
     while True:
-        print("\n" + "="*45)
-        print("             MENU")
-        print("="*45)
+        print("\n" + "=" * 50)
+        print("                  MENU PRINCIPAL")
+        print("=" * 50)
         print("  [ Exploracion ]")
-        print("  1. Ver datos (ultimas 10 filas)")
-        print("  2. Estadistica descriptiva")
-        print("\n  3. Graficos exploratorios")
-        print("  [ Modelos predictivos ]")
-        print("  4. Entrenar Regresion Lineal Simple")
-        print("  5. Entrenar Regresion Multiple")
-        print("  6. Entrenar Random Forest")
-        print("  7. Entrenar Red Neuronal")
-        print("\n  [ Resultados ]")
-        print("  8. Comparar modelos")
-        print("  9. Salir")
+        print("   1. Ver datos (ultimas 10 filas)")
+        print("   2. Estadistica descriptiva")
+        print("   3. Graficos exploratorios")
+        print("")
+        print("  [ Modelos Clasicos ]")
+        print("   4. Regresion Lineal Simple")
+        print("   5. Regresion Multiple")
+        print("   6. Random Forest")
+        print("")
+        print("  [ Red Neuronal ]")
+        print("   7. Entrenar red neuronal")
+        print("   8. Ver metricas red neuronal")
+        print("   9. Ver graficos red neuronal")
+        print("")
+        print("  [ Comparativa ]")
+        print("  10. Comparar todos los modelos")
+        print("")
+        print("  11. Salir")
 
         op = input("\n>> ").strip()
 
@@ -644,115 +1036,34 @@ def main():
             hacer_graficos_exploratorios(df)
 
         elif op == "4":
-            mod, r2, feats = _entrenar_simple(df)
-            resultados["simple"] = (mod, r2, feats)
+            _entrenar_simple(df)
 
         elif op == "5":
-            mod, r2, feats = _entrenar_multiple(df)
-            resultados["multiple"] = (mod, r2, feats)
+            _entrenar_multiple(df)
 
         elif op == "6":
-            mod, r2, feats = _entrenar_rf(df)
-            resultados["rf"] = (mod, r2, feats)
+            _entrenar_rf(df)
 
         elif op == "7":
-            mod, r2, feats = _entrenar_red_neuronal(df)
-            resultados["nn"] = (mod, r2, feats)
-            print("PRUEBA")
+            entrenar_red_neuronal(df)
 
         elif op == "8":
-            # verificar que esten entrenados los 3 antes de comparar
-            faltantes = [k for k, v in resultados.items() if v is None]
-            if faltantes:
-                nombres = {"simple": "4", "multiple": "5", "rf": "6"}
-                print("\n  faltan modelos por entrenar:")
-                for f in faltantes:
-                    print(f"    -> opcion {nombres[f]} ({f})")
-            else:
-                comparar_modelos(resultados)
+            mostrar_metricas_red()
 
         elif op == "9":
-            print("\n FIN \n")
+            graficar_resultados_red()
+
+        elif op == "10":
+            comparar_todos_los_modelos()
+
+        elif op == "11":
+            print("\n  Fin del Programa.\n")
             break
 
         else:
-            print("  eso no es una opcion valida")
-
-
-# -----------------------------------------------------------------------
-# funciones internas de entrenamiento (separadas para el menu)
-# -----------------------------------------------------------------------
-
-def _entrenar_simple(df):
-    print("\n" + "="*50)
-    print("  MODELO 1 — Regresion Lineal Simple (año -> siniestros)")
-    print("="*50)
-    X_tr, X_te, y_tr, y_te = preparar_split(df, FEATURES_SIMPLE)
-    mod = LinearRegression().fit(X_tr, y_tr)
-    coef = mod.coef_[0]
-    print(f"\n  ecuacion: siniestros = {coef:.2f} * año + ({mod.intercept_:.2f})")
-    print(f"  por cada año que pasa, los siniestros cambian en {coef:.2f} unidades")
-    r2 = imprimir_metricas("Lineal Simple",
-                            y_tr, mod.predict(X_tr),
-                            y_te, mod.predict(X_te))
-    scores = cross_val_score(mod, X_tr, y_tr, cv=5, scoring="r2")
-    print(f"  Cross Validation R²: {scores.mean():.4f} ± {scores.std():.4f}")
-    graficar_diagnostico(y_te, mod.predict(X_te), "Regresion Lineal Simple")
-    matriz_confusion(y_te, mod.predict(X_te), "Regresion Lineal Simple")
-    return mod, r2, FEATURES_SIMPLE
-
-
-def _entrenar_multiple(df):
-    feats_ok = [f for f in FEATURES_MULTI if f in df.columns]
-    print("\n" + "="*50)
-    print(f"  MODELO 2 — Regresion Multiple")
-    print(f"  Features: {feats_ok}")
-    print("="*50)
-    X_tr, X_te, y_tr, y_te = preparar_split(df, feats_ok)
-    mod = LinearRegression().fit(X_tr, y_tr)
-    print("\n  coeficientes (cuanto aporta cada variable):")
-    for feat, c in zip(feats_ok, mod.coef_):
-        print(f"    {feat:<22}: {c:+.4f}")
-    r2 = imprimir_metricas("Regresion Multiple",
-                            y_tr, mod.predict(X_tr),
-                            y_te, mod.predict(X_te))
-    scores = cross_val_score(mod, X_tr, y_tr, cv=5, scoring="r2")
-    print(f"  Cross Validation R²: {scores.mean():.4f} ± {scores.std():.4f}")
-    graficar_diagnostico(y_te, mod.predict(X_te), "Regresion Multiple")
-    matriz_confusion(y_te, mod.predict(X_te), "Regresion Multiple")
-    return mod, r2, feats_ok
-
-
-def _entrenar_rf(df):
-    feats_ok = [f for f in FEATURES_MULTI if f in df.columns]
-    print("\n" + "="*50)
-    print("  MODELO 3 — Random Forest (100 arboles, profundidad max 6)")
-    print("="*50)
-    X_tr, X_te, y_tr, y_te = preparar_split(df, feats_ok)
-    print("  entrenando... puede tardar unos segundos")
-    mod = RandomForestRegressor(
-    n_estimators=100,
-    max_depth=3,
-    min_samples_split=10,
-    min_samples_leaf=5,
-    random_state=42,
-    n_jobs=-1 
-)
-    mod.fit(X_tr, y_tr)
-    print("\n  importancia de variables:")
-    importancias = pd.Series(mod.feature_importances_, index=feats_ok)
-    for feat, imp in importancias.sort_values(ascending=False).items():
-        barra = "█" * int(imp * 35)
-        print(f"    {feat:<22}: {barra} {imp:.4f}")
-    r2 = imprimir_metricas("Random Forest",
-                            y_tr, mod.predict(X_tr),
-                            y_te, mod.predict(X_te))
-    scores = cross_val_score(mod, X_tr, y_tr, cv=5, scoring="r2")
-    print(f"  Cross Validation R²: {scores.mean():.4f} ± {scores.std():.4f}")
-    graficar_diagnostico(y_te, mod.predict(X_te), "Random Forest")
-    matriz_confusion(y_te, mod.predict(X_te), "Random Forest")
-    return mod, r2, feats_ok
+            print("  Eso no es una opcion valida")
 
 
 if __name__ == "__main__":
     main()
+
