@@ -458,6 +458,10 @@ def comparar_modelos(resultados):
     print("  Igual la Regresion Multiple sirve porque los coeficientes se pueden")
     print("  explicar en terminos reales, algo que con Random Forest es mas dificil.")
 
+# -----------------------------------------------------------------------
+# Redes neuronales
+# -----------------------------------------------------------------------
+
 
 FEATURES_NN_NUM = [
     "anio",
@@ -522,6 +526,68 @@ def preparar_datos_red_neuronal(df):
     return X_train_prep, X_test_prep, y_train, y_test, preprocesador
 
 
+def _entrenar_red_neuronal(df):
+    try:
+        import tensorflow as tf
+        from tensorflow import keras
+    except ModuleNotFoundError:
+        print("\n  Falta TensorFlow. Instala dependencias antes de entrenar la red neuronal.")
+        return None, 0, FEATURES_NN_NUM + FEATURES_NN_CAT
+
+    print("\n" + "="*50)
+    print("  MODELO 4 — Red Neuronal MLP")
+    print("="*50)
+
+    np.random.seed(42)
+    tf.random.set_seed(42)
+
+    X_tr, X_te, y_tr, y_te, preprocesador = preparar_datos_red_neuronal(df)
+
+    modelo = keras.Sequential([
+        keras.layers.Input(shape=(X_tr.shape[1],)),
+        keras.layers.Dense(64, activation="relu"),
+        keras.layers.Dropout(0.30),
+        keras.layers.Dense(32, activation="relu"),
+        keras.layers.Dropout(0.20),
+        keras.layers.Dense(16, activation="relu"),
+        keras.layers.Dense(1, activation="relu"),
+    ])
+
+    modelo.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=0.001),
+        loss="mse",
+        metrics=["mae", "mse"],
+    )
+
+    print("\n  Arquitectura: 64 -> 32 -> 16 -> 1")
+    print("  Activacion: ReLU")
+    print("  Entrenando red neuronal...")
+
+    modelo.fit(
+        X_tr,
+        y_tr,
+        validation_split=0.15,
+        epochs=150,
+        batch_size=16,
+        verbose=1,
+        callbacks=[
+            keras.callbacks.EarlyStopping(
+                monitor="val_loss",
+                patience=20,
+                restore_best_weights=True,
+            )
+        ],
+    )
+
+    y_pred_tr = modelo.predict(X_tr).reshape(-1)
+    y_pred_te = modelo.predict(X_te).reshape(-1)
+
+    r2 = imprimir_metricas("Red Neuronal MLP", y_tr, y_pred_tr, y_te, y_pred_te)
+    graficar_diagnostico(y_te, y_pred_te, "Red Neuronal MLP")
+    matriz_confusion(y_te, y_pred_te, "Red Neuronal MLP")
+
+    return modelo, r2, FEATURES_NN_NUM + FEATURES_NN_CAT
+
 # -----------------------------------------------------------------------
 # menu principal
 # -----------------------------------------------------------------------
@@ -556,17 +622,14 @@ def main():
         print("  [ Exploracion ]")
         print("  1. Ver datos (ultimas 10 filas)")
         print("  2. Estadistica descriptiva")
-        print("  3. Graficos exploratorios")
-        print("")
+        print("\n  3. Graficos exploratorios")
         print("  [ Modelos predictivos ]")
         print("  4. Entrenar Regresion Lineal Simple")
         print("  5. Entrenar Regresion Multiple")
         print("  6. Entrenar Random Forest")
         print("  7. Entrenar Red Neuronal")
-        print("")        
-        print("  [ Resultados ]")
+        print("\n  [ Resultados ]")
         print("  8. Comparar modelos")
-        print("")
         print("  9. Salir")
 
         op = input("\n>> ").strip()
@@ -593,8 +656,8 @@ def main():
             resultados["rf"] = (mod, r2, feats)
 
         elif op == "7":
-            #mod, r2, feats = 
-            #resultados["nn"] = (mod, r2, feats)
+            mod, r2, feats = _entrenar_red_neuronal(df)
+            resultados["nn"] = (mod, r2, feats)
             print("PRUEBA")
 
         elif op == "8":
